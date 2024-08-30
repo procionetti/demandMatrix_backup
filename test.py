@@ -32,7 +32,6 @@ from bokeh.io.doc import curdoc
 from bokeh.models import Slider, HoverTool, Select
 from bokeh.layouts import widgetbox, row, column
 
-# Define a sequential multi-hue color palette.
 palette = brewer['Blues'][8]
 # Reverse color order so that dark blue is highest obesity.
 palette = palette[::-1]
