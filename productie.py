@@ -186,6 +186,8 @@ for i,urg in enumerate(['A1','A2']):
             hex_grid.insert(np.shape(hex_grid)[1],f"month:{month}:-day:{weekday+1}",column_to_insert)
 
 # 8) Define a sequential multi-hue color palette and reverse color order so that dark blue is highest obesity.
+Day_Labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+Month_Labels= ["January","February","March","April","May","June","July","August","September","October","November","December"]
 palette = brewer['Blues'][8]
 palette = palette[::-1]
 
@@ -215,13 +217,15 @@ geosource = GeoJSONDataSource(geojson = json_data(1,1,2))
 def update_plot(attr, old, new):
 
     month = mon_slider.value
-    day = day_slider.value
+    # Replace slider with RadGroup
+    day = rad_group.active + 1
     urgency = urg_slider.value
     new_data = json_data(month,day,urgency)        
     # Update the plot based on the changed inputs
     p = make_plot(month,day,urgency)
     # Update the layout, clear the old document and display the new document
-    layout = column(p, widgetbox(mon_slider), widgetbox(day_slider), widgetbox(urg_slider))
+    sliders = column(mon_slider,urg_slider,rad_group)
+    layout = column(p, sliders)
     curdoc().clear()
     curdoc().add_root(layout)
     # Update the data
@@ -242,7 +246,7 @@ def make_plot(month,day,urgency):
   color_bar = ColorBar(color_mapper=color_mapper, label_standoff=18,border_line_color=None, location = (0, 0))
 
   # Create figure object.
-  p = figure(title = f'Average number of A{urgency} incidents on weekday {day} of Month {month}', 
+  p = figure(title = f"Average number of A{urgency} incidents on {Day_Labels[day-1]}\'s of {Month_Labels[month]}", 
             plot_height = 650, plot_width = 850,
             toolbar_location = None)
   p.xgrid.grid_line_color = None
@@ -255,8 +259,13 @@ def make_plot(month,day,urgency):
   p.add_layout(color_bar, 'right')
   return p
 
-# 12) Call the plotting function and add sliders
+# 12) Call the plotting function 
 p = make_plot(1,1,2)
+
+# 13) Add checkbox group for weekdays(trial). 
+rad_group = RadioButtonGroup(labels=Day_Labels[:test_days], active=0)
+rad_group.on_change('active', update_plot) # rad_group returns [i,j] if i,j clicked, otherwise [].
+
 # Make a MONTHS slider object 
 mon_slider = Slider(title = 'Month',start = 1, end = test_months, step = 1, value = 1)
 mon_slider.on_change('value', update_plot)
@@ -268,5 +277,7 @@ urg_slider = Slider(title = 'Urgency A',start = 1, end = 2, step = 1, value = 2)
 urg_slider.on_change('value', update_plot)
 # Make a column layout of widgetbox(slider) and plot, and add it to the current document
 # Display the current document
-layout = column(p, widgetbox(mon_slider), widgetbox(day_slider), widgetbox(urg_slider))
+sliders = column(mon_slider,urg_slider,rad_group)
+layout = column(p,sliders)
+#layout = column(p, widgetbox(mon_slider), widgetbox(day_slider), widgetbox(urg_slider))
 curdoc().add_root(layout)
