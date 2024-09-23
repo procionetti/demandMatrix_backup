@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 import contextily as cx
 from tqdm import tqdm
 import matplotlib as mpl
+%matplotlib inline
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from shapely.geometry import Point, Polygon, LineString
@@ -24,11 +25,10 @@ import json
 
 from bokeh.io import output_notebook, show, output_file
 from bokeh.plotting import figure
-from bokeh.models import GeoJSONDataSource, LinearColorMapper, ColorBar, NumeralTickFormatter
+from bokeh.models import GeoJSONDataSource, LinearColorMapper, ColorBar, RadioButtonGroup,Slider
 from bokeh.palettes import brewer
 
 from bokeh.io.doc import curdoc
-from bokeh.models import Slider, HoverTool, Select
 from bokeh.layouts import widgetbox, row, column
 
 def extractDataTwente():
