@@ -126,7 +126,6 @@ p = make_plot(1,1,1,1)
 # 7) Add checkbox group for weekdays. 
 rad_group = RadioButtonGroup(labels=Day_Labels, active=0)
 rad_group.on_change('active', update_plot) # rad_group returns [i,j] if i,j clicked, otherwise [].
-
 # 8) Add checkbox group for regions (trial). 
 rad_regio = RadioButtonGroup(labels=list(regios_dict.values()), active=0)
 rad_regio.on_change('active', update_plot)
@@ -136,10 +135,9 @@ mon_slider.on_change('value', update_plot)
 # Make a URGENCY slider object 
 urg_slider = Slider(title = 'Urgency A',start = 1, end = 2, step = 1, value = 1)
 urg_slider.on_change('value', update_plot)
-
 # 9) Make a column layout of widgetbox(slider) and plot, and add it to the current document
 # Display the current document
-sliders = column(mon_slider,urg_slider,rad_group)
+sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
 layout = row(p,sliders)
 #layout = column(p, widgetbox(mon_slider), widgetbox(day_slider), widgetbox(urg_slider))
 curdoc().add_root(layout)
