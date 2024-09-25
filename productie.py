@@ -12,7 +12,6 @@ import plotly.graph_objects as go
 import contextily as cx
 from tqdm import tqdm
 import matplotlib as mpl
-%matplotlib inline
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from shapely.geometry import Point, Polygon, LineString
