@@ -28,16 +28,18 @@ from bokeh.models   import GeoJSONDataSource, LinearColorMapper, ColorBar, Radio
 from bokeh.palettes import brewer
 
 from bokeh.io.doc import curdoc
-from bokeh.layouts import widgetbox, row, column
+from bokeh.layouts import widgetbox, row, column, gridplot, layout
 
+x = list(range(11))
+y1 = [10 - i for i in x]
+y2 = [abs(i - 5) for i in x]
 
-# 0) Call saved hexagons as geodataframes
-#hexagons_file_path = f'saved_tables/{regios_dict[regionCode]}Hexagons.json'  
-#with open(hexagons_file_path, 'r') as f:
-#    geojson_string = f.read()
-#geojson_string2 = json.loads(geojson_string)
-#geojson_data1 = json.loads(geojson_string2)
-#GDFhexagons = gpd.GeoDataFrame.from_features(geojson_data1["features"])
+# create three plots
+s1 = figure(background_fill_color="#fafafa")
+s1.circle(x, y1, size=12, alpha=0.8, color="#53777a")
+
+s2 = figure(background_fill_color="#fafafa")
+s2.triangle(x, y2, size=12, alpha=0.8, color="#c02942")
 
 # 1) Define Regions dictionary and Call saved geotables as geodataframes
 #regionCode = int(input("Insert 1 for FLGV and 2 for Twente:_____"))
@@ -86,15 +88,15 @@ def update_plot(attr, old, new):
     p = make_plot(region,month,day,urgency)
     # Update the layout, clear the old document and display the new document
     sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
-    layout = row(p, sliders)
+    layot = layout([p, sliders],[s1,s2])
     curdoc().clear()
-    curdoc().add_root(layout)
+    curdoc().add_root(layot)
     # Update the data
     geosource.geojson = new_data
 
 # 5) Create a plotting function which defines what the plot looks like 
 def make_plot(region,month,day,urgency):    
-  
+
   date=f"month:{month}:-day:{day}"
   # urg = urgency - 1
   urg_gdf = gpd.read_file(f'saved_tables/hexgrid{regios_dict[region]}_2122_A{urgency}.geojson')
@@ -138,6 +140,6 @@ urg_slider.on_change('value', update_plot)
 # 9) Make a column layout of widgetbox(slider) and plot, and add it to the current document
 # Display the current document
 sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
-layout = row(p,sliders)
+layot = layout([p, sliders],[s1,s2])
 #layout = column(p, widgetbox(mon_slider), widgetbox(day_slider), widgetbox(urg_slider))
-curdoc().add_root(layout)
+curdoc().add_root(layot)
