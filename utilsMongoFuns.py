@@ -1,3 +1,6 @@
+from bokeh.models import ColumnDataSource, FactorRange
+from bokeh.plotting import figure, show, output_notebook
+from bokeh.palettes import Category10
 import pymongo
 from pymongo import MongoClient
 import pprint
@@ -236,13 +239,6 @@ def CompareDispatch(assignedCars, dispAdvices):
     df_final['week'] = df_final['timestamp'].dt.isocalendar().week
     df_final['month'] = df_final['timestamp'].dt.month
 
-    #print("Number of A0/A1/A2 rides:",len(df_final))
-    #print("Proportion A0:",round(len(df_final[df_final['urgency']=='A0'])/len(df_final),4),"A1:",round(len(df_final[df_final['urgency']=='A1'])/len(df_final),4),"A2:",round(len(df_final[df_final['urgency']=='A2'])/len(df_final),4))
-    #print("Number of A0/A1/A2 rides per day:",len(df_final)/(end_date-start_date).days+1)
-    #print("Number of rides that were followed by an advice:",len(df_final[df_final['adviceGiven']]))
-    #print(f"Percentage of all A0/A1/A2 rides that were not preceded by a Seconds advice: {100*(1-(len(df_final[df_final['adviceGiven']]) / len(df_final)))}%")
-    #check same thing for skipping first 1% of observations
-    
     return df_final
 
 def DispatchStatsPlots(DispStats_df, group_by_period='week'):
@@ -259,89 +255,61 @@ def DispatchStatsPlots(DispStats_df, group_by_period='week'):
     advice_rank_counts = df_filtered.groupby([group_by_period, 'advice_rank_grouped']).size().unstack(fill_value=0)
     advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
 
-    # Set the Seaborn style
-    sns.set_theme(style='whitegrid')
-
     # Plot the percentages of each advice_rank
-    fig, ax = plt.subplots(figsize=(10, 6))
-    bottom = None
-    colors = sns.color_palette("deep", len(advice_rank_percentages.columns))
-    
-    for i, advice_rank in enumerate(advice_rank_percentages.columns):
-        label = f'Advice {advice_rank}' if advice_rank <= 4 else 'Advice 5 - Higher'
-        ax.bar(advice_rank_percentages.index, advice_rank_percentages[advice_rank], bottom=bottom, label=label, color=colors[i])
-        if bottom is None:
-            bottom = advice_rank_percentages[advice_rank].values
-        else:
-            bottom += advice_rank_percentages[advice_rank].values
+    DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
+    # Filter out rows with None in advice_rank and calculate percentages
+    df_filtered = DispStats_df.copy()
+    df_filtered = df_filtered.dropna(subset=['advice_rank'])
+    df_filtered['advice_rank'] = df_filtered['advice_rank'].astype(int)
 
-    ax.set_ylim(0, 100)
-    ax.set_yticks(range(0, 101, 10))
-    ax.set_yticklabels([f'{i}%' for i in range(0, 101, 10)])
-    ax.set_xlabel(group_by_period.capitalize())
-    #tryout the following line
-    ax.set_xticks(advice_rank_percentages.index)
-    ax.set_ylabel('Percentage of Incidents')
-    ax.set_title(f'Incident Advice Distribution per {group_by_period.capitalize()}')
-    ax.legend()
-    plt.xticks(rotation=90)  # Rotate x-axis labels 90 degrees
-    plt.tight_layout()
-    plt.show()
+    # Group advice ranks of 5 or higher into one category
+    df_filtered['advice_rank_grouped'] = df_filtered['advice_rank'].apply(lambda x: x if x <= 4 else 5)
+    advice_rank_counts = df_filtered.groupby([group_by_period, 'advice_rank_grouped']).size().unstack(fill_value=0)
+    advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
+
+    df = advice_rank_percentages
+    df_weeks_str = [str(week) for week in df.index.to_list()]
+    data_dict = {'weeks' : df_weeks_str}
+    for rank in df.columns.to_list():
+        data_dict[f"{rank}"] = df[rank].values
+    advice_ranks = df.columns.to_list()  # Ensure these match your actual column names
+    weeks        = df.index.to_list()
+    colors       = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
+
+    p = figure(x_range=df_weeks_str, plot_height=600, plot_width=1000, 
+            title   = f'Incident Advice Distribution per {group_by_period.capitalize()}', 
+            toolbar_location=None, tools="", y_range=(0, 100))
+
+    # Plot the stacked bars
+    p.vbar_stack([str(rank) for rank in advice_ranks],x='weeks', width=0.9, color=colors, source=data_dict, 
+                legend_label=[f'Advice {rank}' if int(rank) <= 4 else 'Advice 5 - Higher' for rank in advice_ranks])
+    # Customize plot labels
+    p.xaxis.axis_label = group_by_period.capitalize()  # Example: 'Week'
+    p.yaxis.axis_label = 'Percentage of Incidents'
+
+    # Set y-axis ticks and labels
+    p.yaxis.ticker = [i for i in range(0, 101, 10)]
+    p.yaxis.major_label_overrides = {i: f'{i}%' for i in range(0, 101, 10)}
+    # Customize legend
+    p.legend.title = 'Advice Ranks'
+    p.legend.location = 'left'
+    p.legend.orientation = 'horizontal'
 
     #now grouped by urgency categories
-    advice_rank_counts = df_filtered.groupby([group_by_period, 'urgency', 'advice_rank_grouped']).size().unstack(fill_value=0)
-    advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
-    fig, axs = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
-    urgencies = ['A0', 'A1', 'A2']
-    colors = sns.color_palette("deep", len(advice_rank_percentages.columns))
-    for i, urgency in enumerate(urgencies):
-        ax = axs[i]
-        if urgency in advice_rank_percentages.index.get_level_values('urgency'):
-            data = advice_rank_percentages.xs(urgency, level='urgency')
-            data = data.reindex(DispStats_df[f'{group_by_period}'], fill_value=0) #reindex so that missing A0 values will not result in the x ticks being wrong
-            bottom = None
-            for j, advice_rank in enumerate(data.columns):
-                label = f'Advice {advice_rank}' if advice_rank <= 4 else 'Advice 5 - Higher'
-                ax.bar(data.index, data[advice_rank], bottom=bottom, label=label, color=colors[j])
-                if bottom is None:
-                    bottom = data[advice_rank].values
-                else:
-                    bottom += data[advice_rank].values
-            ax.set_ylim(0, 100)
-            ax.set_yticks(range(0, 101, 10))
-            ax.set_xticks(data.index) #check x ticks, if it doesn't work do index.astype(int)
-            ax.set_yticklabels([f'{k}%' for k in range(0, 101, 10)])
-            ax.set_title(f'Incident Advice Distribution per {group_by_period.capitalize()} for Urgency {urgency}')
-            ax.set_ylabel('Percentage of Incidents')
-            if i == len(urgencies) - 1:
-                ax.set_xlabel(group_by_period.capitalize())
-            ax.legend()
-            plt.xticks(rotation=90)  # Rotate x-axis labels 90 degrees
-
-    plt.tight_layout()
-    plt.show()
-    #now a plot of number of dispatches vs number of incidents
-    incidents_per_period = DispStats_df.groupby(group_by_period)['requestId'].nunique()
-    dispatches_per_period = DispStats_df.groupby(group_by_period).size()
-    comparison_df = pd.DataFrame({
-        'Number of Incidents': incidents_per_period,
-        'Number of Dispatches': dispatches_per_period
-    }).reset_index()
-    fig, ax = plt.subplots(figsize=(12, 8))
-    bar_width = 0.35
-    index = np.arange(len(comparison_df))
-    bar1 = ax.bar(index - bar_width/2, comparison_df['Number of Incidents'], bar_width, label='Number of Incidents', color='blue')
-    bar2 = ax.bar(index + bar_width/2, comparison_df['Number of Dispatches'], bar_width, label='Number of Dispatches', color='orange')
-    ax.set_xlabel(group_by_period.capitalize())
-    ax.set_ylabel('Count')
-    ax.set_title(f'Number of Incidents vs Number of Dispatches per {group_by_period.capitalize()}')
-    ax.set_xticks(index)
-    ax.set_xticklabels(comparison_df[group_by_period], rotation=90)
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
+    
+    # advice_rank_counts = df_filtered.groupby([group_by_period, 'urgency', 'advice_rank_grouped']).size().unstack(fill_value=0)
+    # advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
+    # #now a plot of number of dispatches vs number of incidents
+    # incidents_per_period = DispStats_df.groupby(group_by_period)['requestId'].nunique()
+    # dispatches_per_period = DispStats_df.groupby(group_by_period).size()
+    # comparison_df = pd.DataFrame({
+    #     'Number of Incidents': incidents_per_period,
+    #     'Number of Dispatches': dispatches_per_period
+    # }).reset_index()
+    
     # Now a plot of average driving times compared to shortest possible driving time per day / week / month, per urgency
-    daily_differences = DispStats_df[DispStats_df['urgency'].isin(['A0', 'A1', 'A2'])].groupby([group_by_period, 'urgency'])['time_difference'].median().unstack()
+    # daily_differences = DispStats_df[DispStats_df['urgency'].isin(['A0', 'A1', 'A2'])].groupby([group_by_period, 'urgency'])['time_difference'].median().unstack()
+    return p
 
 def mongoDBimportTwente(startMonth,startDay,endMonth,endDay,boolean):
     loc_to_sta_rounded = {tuple(np.round(key,2)) : value for key, value in loc_to_sta_oost.items()}
@@ -365,4 +333,4 @@ def mongoDBimportTwente(startMonth,startDay,endMonth,endDay,boolean):
 
     return DispatchStatsPlots(DispStats_df)
 
-mongoDBimportTwente(8,1,8,5,1)
+# mongoDBimportTwente(8,1,8,5,1)
