@@ -23,7 +23,7 @@ from tqdm import tqdm
 import seaborn as sns
 import pickle
 # import station_coordinates
-
+area = "twente"
 pd.set_option('display.max_columns', None)
 
 loc_to_sta_oost = {(52.335954653064526, 6.639791503190925): 'ALC', 
@@ -59,7 +59,7 @@ def adjust_time(timestr):
     else:
         return dt + datetime.timedelta(hours=1)  # Add 1 hour
 
-def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5):
+def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5): #5 for Twente
     """ Function that obtains total driving time in total_time_until_arrival column, as well as unique ids. (this function contains no filtering, so no ids that do not contain open column are filtered out.)
     Note that a problem is that the atRequest==True statement is in some cases (approx. 10-15 percent) not found, so that we cannot derive
     (at least not from that) the time the vehicle arrived, leading to some None values at the total_driving_time column. Need to
@@ -102,6 +102,9 @@ def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5):
     return assignedCars012,unique_ids
 
 def FindDispatchAdvices(previous,dataset,start_date,end_date,unique_ids):
+    start_date_string = start_date.strftime("%Y_%m_%d")
+    end_date_string = end_date.strftime("%Y_%m_%d")
+
     """ With this function we find the non-na dispatch advices, as well as the unique ones and the #advs per incident.
     We also create a plot on the number of advices and unique advices. Should take about one hour per simulated month"""
 
@@ -241,7 +244,7 @@ def CompareDispatch(assignedCars, dispAdvices):
 
     return df_final
 
-def DispatchStatsPlots(DispStats_df, group_by_period='week'):
+def DispatchRanksPlots(DispStats_df, group_by_period='week'):
     ''' Make some plots with the dispatch statistics dataframe group_by_period should be either day, week, or month'''
     
     DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
@@ -296,7 +299,7 @@ def DispatchStatsPlots(DispStats_df, group_by_period='week'):
     p.legend.orientation = 'horizontal'
 
     #now grouped by urgency categories
-    
+
     # advice_rank_counts = df_filtered.groupby([group_by_period, 'urgency', 'advice_rank_grouped']).size().unstack(fill_value=0)
     # advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
     # #now a plot of number of dispatches vs number of incidents
@@ -316,12 +319,11 @@ def mongoDBimportTwente(startMonth,startDay,endMonth,endDay,boolean):
     previous = [True,False][boolean]
     client = MongoClient("mongodb+srv://seconds:test%5EMe%5E%5E@cluster0.z9k9jkv.mongodb.net/")
     dataset = client.aon_prd_V2
-    start_date = datetime.datetime(2024, startMonth, startDay)
+    start_date = datetime.datetime(2024, startMonth, startDay, 0 , 0, 0)
     #since 2 hours are added after 31 SMarch, in order to get data until end of march, do until 22:00
     end_date = datetime.datetime(2024, endMonth, endDay, 21, 59, 59)
-    start_date_string = start_date.strftime("%Y_%m_%d")
-    end_date_string = end_date.strftime("%Y_%m_%d")
-
+    # start_date_string = start_date.strftime("%Y_%m_%d")
+    # end_date_string = end_date.strftime("%Y_%m_%d")
     TimeUntilArrival012_df, uniqueIDs                             = TimeUntilArrival012(dataset,start_date,end_date)
     print('done')
     AssignedCars_df                                               = FindAssignedCars012(dataset,start_date,end_date)
@@ -331,6 +333,6 @@ def mongoDBimportTwente(startMonth,startDay,endMonth,endDay,boolean):
     DispStats_df                                                  = CompareDispatch(AssignedCars_df,DispAdvices_df)
     print('done')
 
-    return DispatchStatsPlots(DispStats_df)
+    return DispatchRanksPlots(DispStats_df)
 
 # mongoDBimportTwente(8,1,8,5,1)
