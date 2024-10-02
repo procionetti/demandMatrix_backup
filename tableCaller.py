@@ -25,20 +25,12 @@ import pyogrio
 from bokeh.io       import output_notebook, show, output_file
 from bokeh.plotting import figure, show, output_notebook
 from bokeh.models   import GeoJSONDataSource, LinearColorMapper, ColorBar, RadioButtonGroup,Slider, ColumnDataSource, FactorRange
-from bokeh.palettes import brewer
+from bokeh.palettes import brewer, Category10, Category10_3
 from bokeh.io.doc import curdoc
 from bokeh.layouts import widgetbox, row, column, gridplot, layout
 from utilsMongoFuns import *
 
-x = list(range(11))
-y1 = [10 - i for i in x]
-y2 = [abs(i - 5) for i in x]
 
-# create three plots
-s1 = figure(background_fill_color="#fafafa")
-s1.circle(x, y1, size=12, alpha=0.8, color="#53777a")
-
-adviceRanks = mongoDBimportTwente(8,2,8,4,1) #start and end date + boolean=False(1) as no saved tables yet
 
 # 1) Define Regions dictionary and Call saved geotables as geodataframes
 #regionCode = int(input("Insert 1 for FLGV and 2 for Twente:_____"))
@@ -87,7 +79,7 @@ def update_plot(attr, old, new):
     p = make_plot(region,month,day,urgency)
     # Update the layout, clear the old document and display the new document
     sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
-    layot = layout([p, sliders],[s1,adviceRanks])
+    layot = layout([p, sliders],adviceRanks)
     curdoc().clear()
     curdoc().add_root(layot)
     # Update the data
@@ -123,7 +115,8 @@ def make_plot(region,month,day,urgency):
 
 # 6) Call the plotting function 
 p = make_plot(1,1,1,1)
-
+# 6b) Call external plotting function
+adviceRanks = mongoDBimportTwente("twente",1,1,1,31,1) #start and end date + boolean=False(1) as no saved tables yet
 # 7) Add checkbox group for weekdays. 
 rad_group = RadioButtonGroup(labels=Day_Labels, active=0)
 rad_group.on_change('active', update_plot) # rad_group returns [i,j] if i,j clicked, otherwise [].
@@ -139,6 +132,6 @@ urg_slider.on_change('value', update_plot)
 # 9) Make a column layout of widgetbox(slider) and plot, and add it to the current document
 # Display the current document
 sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
-layot = layout([p, sliders],[s1,adviceRanks])
+layot = layout([p, sliders],adviceRanks)
 #layout = column(p, widgetbox(mon_slider), widgetbox(day_slider), widgetbox(urg_slider))
 curdoc().add_root(layot)
