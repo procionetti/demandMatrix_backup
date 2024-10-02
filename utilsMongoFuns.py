@@ -1,5 +1,6 @@
 from bokeh.models import ColumnDataSource, FactorRange
 from bokeh.plotting import figure, show, output_notebook
+from bokeh.transform import factor_cmap
 from bokeh.palettes import Category10
 import pymongo
 from pymongo import MongoClient
@@ -245,7 +246,7 @@ def CompareDispatch(assignedCars, dispAdvices):
     return df_final
 
 def DispatchRanksPlots(DispStats_df, group_by_period='week'):
-    ''' Make some plots with the dispatch statistics dataframe group_by_period should be either day, week, or month'''
+    ''' Make ranking with the dispatch statistics dataframe group_by_period should be either day, week, or month'''
     
     DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
     # Filter out rows with None in advice_rank and calculate percentages
@@ -271,13 +272,41 @@ def DispatchRanksPlots(DispStats_df, group_by_period='week'):
     advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
 
     df = advice_rank_percentages
-    df_weeks_str = [str(week) for week in df.index.to_list()]
+    weeks        = df.index.to_list()
+    df_weeks_str = [str(week) for week in weeks]
     data_dict = {'weeks' : df_weeks_str}
     for rank in df.columns.to_list():
         data_dict[f"{rank}"] = df[rank].values
     advice_ranks = df.columns.to_list()  # Ensure these match your actual column names
-    weeks        = df.index.to_list()
-    colors       = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
+
+    # Now prepare the incidents vs dispatches plot
+    incidents_per_period = DispStats_df.groupby(group_by_period)['requestId'].nunique()
+    dispatches_per_period = DispStats_df.groupby(group_by_period).size()
+    comparison_df = pd.DataFrame({
+            '# Incidents': incidents_per_period,
+            '# Dispatches': dispatches_per_period }).reset_index()
+    incVdisp         = [ (str(week), column) for week in comparison_df.week for column in comparison_df.columns[1:]]
+    incVdisp_counts  = comparison_df[comparison_df.columns[1:]].values.flatten().tolist()
+    incVdisp_source  = ColumnDataSource(data=dict(x=incVdisp, counts=incVdisp_counts))
+
+    palette = Category10  # You can also choose another palette with more colors if needed
+
+    p2 = figure(x_range=FactorRange(*incVdisp), height=350, 
+                title=f'Number of Incidents vs Number of Dispatches per Week',
+                toolbar_location=None, tools="")
+
+    p2.vbar(x='x', top='counts', width=0.9, source=incVdisp_source, line_color="white", 
+            fill_color=factor_cmap('x', palette=palette, factors=['# Incidents', '# Dispatches'], start=1, end=2))
+
+    # Customize the plot appearance
+    p2.y_range.start = 0
+    p2.x_range.range_padding = 0.1
+    p2.xgrid.grid_line_color = None
+
+
+
+
+    colors = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
 
     p = figure(x_range=df_weeks_str, plot_height=600, plot_width=1000, 
             title   = f'Incident Advice Distribution per {group_by_period.capitalize()}', 
@@ -298,20 +327,6 @@ def DispatchRanksPlots(DispStats_df, group_by_period='week'):
     p.legend.location = 'left'
     p.legend.orientation = 'horizontal'
 
-    #now grouped by urgency categories
-
-    # advice_rank_counts = df_filtered.groupby([group_by_period, 'urgency', 'advice_rank_grouped']).size().unstack(fill_value=0)
-    # advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
-    # #now a plot of number of dispatches vs number of incidents
-    # incidents_per_period = DispStats_df.groupby(group_by_period)['requestId'].nunique()
-    # dispatches_per_period = DispStats_df.groupby(group_by_period).size()
-    # comparison_df = pd.DataFrame({
-    #     'Number of Incidents': incidents_per_period,
-    #     'Number of Dispatches': dispatches_per_period
-    # }).reset_index()
-    
-    # Now a plot of average driving times compared to shortest possible driving time per day / week / month, per urgency
-    # daily_differences = DispStats_df[DispStats_df['urgency'].isin(['A0', 'A1', 'A2'])].groupby([group_by_period, 'urgency'])['time_difference'].median().unstack()
     return p
 
 def mongoDBimportTwente(startMonth,startDay,endMonth,endDay,boolean):
