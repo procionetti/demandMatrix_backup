@@ -1,5 +1,6 @@
 from bokeh.models import ColumnDataSource, FactorRange
 from bokeh.plotting import figure, show, output_notebook
+from bokeh.layouts import widgetbox, row, column, gridplot, layout
 from bokeh.transform import factor_cmap
 from bokeh.palettes import Category10
 import pymongo
@@ -245,7 +246,7 @@ def CompareDispatch(assignedCars, dispAdvices):
 
     return df_final
 
-def DispatchRanksPlots(DispStats_df, group_by_period='week'):
+def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
     ''' Make ranking with the dispatch statistics dataframe group_by_period should be either day, week, or month'''
     
     DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
@@ -290,6 +291,7 @@ def DispatchRanksPlots(DispStats_df, group_by_period='week'):
     incVdisp_source  = ColumnDataSource(data=dict(x=incVdisp, counts=incVdisp_counts))
 
     palette = Category10  # You can also choose another palette with more colors if needed
+    colors = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
 
     p2 = figure(x_range=FactorRange(*incVdisp), height=350, 
                 title=f'Number of Incidents vs Number of Dispatches per Week',
@@ -303,31 +305,26 @@ def DispatchRanksPlots(DispStats_df, group_by_period='week'):
     p2.x_range.range_padding = 0.1
     p2.xgrid.grid_line_color = None
 
-
-
-
-    colors = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
-
-    p = figure(x_range=df_weeks_str, plot_height=600, plot_width=1000, 
+    p1 = figure(x_range=df_weeks_str, plot_height=600, plot_width=1000, 
             title   = f'Incident Advice Distribution per {group_by_period.capitalize()}', 
             toolbar_location=None, tools="", y_range=(0, 100))
 
     # Plot the stacked bars
-    p.vbar_stack([str(rank) for rank in advice_ranks],x='weeks', width=0.9, color=colors, source=data_dict, 
+    p1.vbar_stack([str(rank) for rank in advice_ranks],x='weeks', width=0.9, color=colors, source=data_dict, 
                 legend_label=[f'Advice {rank}' if int(rank) <= 4 else 'Advice 5 - Higher' for rank in advice_ranks])
     # Customize plot labels
-    p.xaxis.axis_label = group_by_period.capitalize()  # Example: 'Week'
-    p.yaxis.axis_label = 'Percentage of Incidents'
+    p1.xaxis.axis_label = group_by_period.capitalize()  # Example: 'Week'
+    p1.yaxis.axis_label = 'Percentage of Incidents'
 
     # Set y-axis ticks and labels
-    p.yaxis.ticker = [i for i in range(0, 101, 10)]
-    p.yaxis.major_label_overrides = {i: f'{i}%' for i in range(0, 101, 10)}
+    p1.yaxis.ticker = [i for i in range(0, 101, 10)]
+    p1.yaxis.major_label_overrides = {i: f'{i}%' for i in range(0, 101, 10)}
     # Customize legend
-    p.legend.title = 'Advice Ranks'
-    p.legend.location = 'left'
-    p.legend.orientation = 'horizontal'
+    p1.legend.title = 'Advice Ranks'
+    p1.legend.location = 'left'
+    p1.legend.orientation = 'horizontal'
 
-    return p
+    return row(p1,p2)
 
 def mongoDBimportTwente(startMonth,startDay,endMonth,endDay,boolean):
     loc_to_sta_rounded = {tuple(np.round(key,2)) : value for key, value in loc_to_sta_oost.items()}
@@ -348,6 +345,6 @@ def mongoDBimportTwente(startMonth,startDay,endMonth,endDay,boolean):
     DispStats_df                                                  = CompareDispatch(AssignedCars_df,DispAdvices_df)
     print('done')
 
-    return DispatchRanksPlots(DispStats_df)
+    return DispatchRanksNumsPlots(DispStats_df)
 
 # mongoDBimportTwente(8,1,8,5,1)
