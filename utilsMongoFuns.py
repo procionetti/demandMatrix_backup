@@ -194,12 +194,12 @@ def FindDispatchAdvices(area,previous,dataset,start_date,end_date,unique_ids):
         dispatchAdvices['advice_rank'] = dispatchAdvices.groupby(['timestamp','requestId'])['drivingTime'].rank(method='dense', ascending=True)
         #add potential end timestamps to the dispatch_advices (dispAdvices) dataframe
         dispatchAdvices['potential_end_time'] = dispatchAdvices['timestamp'] + pd.to_timedelta(dispatchAdvices['drivingTime'], unit='s')
-        with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}/dispatchAdvices", 'wb') as file:
+        with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices", 'wb') as file:
             pickle.dump(dispatchAdvices, file)
 
     #unique advices.
-    if previous and os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}/uniquedispatchAdvices"):
-        with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}/uniquedispatchAdvices", 'rb') as file:
+    if previous and os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices"):
+        with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices", 'rb') as file:
             print("Use pickle results for unique dispatch advices as well.")
             uniquedispatchAdvices = pickle.load(file)
     else:

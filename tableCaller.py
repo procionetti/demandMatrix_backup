@@ -70,9 +70,9 @@ geosource = GeoJSONDataSource(geojson = json_data(1,1,1,1))
 
 # 4) Define the callback function: update_plot which obv updates plots with values selcted on applet
 def update_plot(attr, old, new):
-    region   = rad_regio.active + 1
-    month    = mon_slider.value
-    day      = rad_group.active + 1
+    region   = rad_regio.active  + 1
+    month    = mon_slider.active + 1
+    day      = rad_group.active  + 1
     urgency  = urg_slider.value
     new_data = json_data(region,month,day,urgency)        
     # Update the plot based on the changed inputs
@@ -84,6 +84,19 @@ def update_plot(attr, old, new):
     curdoc().add_root(layot)
     # Update the data
     geosource.geojson = new_data
+# 4b) 
+def update_RanksPlot(attr, old, new):
+    month    = advRanksMonths_rad.active + 1
+    # Update the plot based on the changed inputs
+    lens = [31,29,31,30,31,30,31,31,30,31,30,31]
+    p = mongoDBimportTwente("twente",month+1,1,month+1,lens[month-1],1)
+    # Update the layout, clear the old document and display the new document
+    sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
+    layot = layout([p, sliders],[adviceRanks,advRanksMonths_rad])
+    curdoc().clear()
+    curdoc().add_root(layot)
+    # # Update the data
+    # geosource.geojson = new_data
 
 # 5) Create a plotting function which defines what the plot looks like 
 def make_plot(region,month,day,urgency):    
@@ -116,22 +129,25 @@ def make_plot(region,month,day,urgency):
 # 6) Call the plotting function 
 p = make_plot(1,1,1,1)
 # 6b) Call external plotting function
-adviceRanks = mongoDBimportTwente("twente",1,1,1,31,1) #start and end date + boolean=False(1) as no saved tables yet
+adviceRanks = mongoDBimportTwente("twente",1,1,1,2,0) #start and end date + boolean=False(1) as no saved tables yet
+# 6c) Add months checkbox for Bottom plots
+advRanksMonths_rad = RadioButtonGroup(labels=Month_Labels, active=0)
+advRanksMonths_rad.on_change('active', update_RanksPlot) # rad_group returns [i,j] if i,j clicked, otherwise [].
 # 7) Add checkbox group for weekdays. 
 rad_group = RadioButtonGroup(labels=Day_Labels, active=0)
 rad_group.on_change('active', update_plot) # rad_group returns [i,j] if i,j clicked, otherwise [].
-# 8) Add checkbox group for regions (trial). 
+# 8) Add checkbox group for regions 
 rad_regio = RadioButtonGroup(labels=list(regios_dict.values()), active=0)
 rad_regio.on_change('active', update_plot)
-# Make a MONTHS slider object 
-mon_slider = Slider(title = 'Month',start = 1, end = 12, step = 1, value = 1)
-mon_slider.on_change('value', update_plot)
-# Make a URGENCY slider object 
+# Make a MONTHS buttonGroup object 
+mon_slider =  RadioButtonGroup(labels=Month_Labels, active=0)
+mon_slider.on_change('active', update_plot)
+# Make a URGENCY checkButtonGrou 
 urg_slider = Slider(title = 'Urgency A',start = 1, end = 2, step = 1, value = 1)
 urg_slider.on_change('value', update_plot)
 # 9) Make a column layout of widgetbox(slider) and plot, and add it to the current document
 # Display the current document
 sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
-layot = layout([p, sliders],adviceRanks)
+layot = layout([p, sliders],[adviceRanks,advRanksMonths_rad])
 #layout = column(p, widgetbox(mon_slider), widgetbox(day_slider), widgetbox(urg_slider))
 curdoc().add_root(layot)
