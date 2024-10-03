@@ -1,6 +1,8 @@
 from bokeh.models import ColumnDataSource, FactorRange
 from bokeh.plotting import figure, show, output_notebook
-from bokeh.palettes import Category10
+from bokeh.layouts import widgetbox, row, column, gridplot, layout
+from bokeh.transform import factor_cmap
+from bokeh.palettes import Category10, Category10_3
 import pymongo
 from pymongo import MongoClient
 import pprint
@@ -23,7 +25,6 @@ from tqdm import tqdm
 import seaborn as sns
 import pickle
 # import station_coordinates
-
 pd.set_option('display.max_columns', None)
 
 loc_to_sta_oost = {(52.335954653064526, 6.639791503190925): 'ALC', 
@@ -52,6 +53,8 @@ months = ["January", "February", "March", "April", "May", "June", "July", "Augus
 #round up, needed so that we can match coordinates of performed relocations to these stations. If we rounc up to too many digits, no matches will be found.
 
 def adjust_time(timestr):
+    if isinstance(timestr, float):  # In case there's a float
+        return pd.NaT
     dt = datetime.datetime.strptime("".join(timestr[:10] + timestr[11:19]), '%Y-%m-%d%H:%M:%S')
     # Check if the datetime is on or after March 31, 2024, 1:00 AM
     if dt >= datetime.datetime(2024, 3, 31, 1, 0, 0):
@@ -59,7 +62,7 @@ def adjust_time(timestr):
     else:
         return dt + datetime.timedelta(hours=1)  # Add 1 hour
 
-def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5):
+def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5): #5 for Twente
     """ Function that obtains total driving time in total_time_until_arrival column, as well as unique ids. (this function contains no filtering, so no ids that do not contain open column are filtered out.)
     Note that a problem is that the atRequest==True statement is in some cases (approx. 10-15 percent) not found, so that we cannot derive
     (at least not from that) the time the vehicle arrived, leading to some None values at the total_driving_time column. Need to
@@ -89,6 +92,10 @@ def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5):
     for key in unique_keys_disp:
         assignedCars012[key] = assignedCars012['dispatches'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan)
 
+    assignedCars012['requestId'] = assignedCars012['requestId'].astype(str)
+    #now, make sure to convert all columns to objects (string type), except for the datetime columns
+    columns_not_objects = ['timestamp','timestampLogger']
+    assignedCars012 = assignedCars012.apply(lambda col: col if col.name in columns_not_objects else col.astype(str))
     unique_ids = np.unique(assignedCars012.requestId)
     assignedCars012 = assignedCars012.drop('dispatches',axis=1).dropna(axis=1, how='all').reset_index().drop('index',axis=1).sort_index(axis=1)
     #time_gap describes inbetween timestamp and timestampLogger
@@ -100,70 +107,6 @@ def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5):
     times_df['total_time_until_arrival'] = (times_df['end_time'] - times_df['start_time']).dt.total_seconds()
     assignedCars012 = pd.merge(assignedCars012, times_df['total_time_until_arrival'], on='requestId', how='left')    
     return assignedCars012,unique_ids
-
-def FindDispatchAdvices(previous,dataset,start_date,end_date,unique_ids):
-    """ With this function we find the non-na dispatch advices, as well as the unique ones and the #advs per incident.
-    We also create a plot on the number of advices and unique advices. Should take about one hour per simulated month"""
-
-    if previous and os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices.csv"):
-        print("Use CSV results.")
-        dispatchAdvices = pd.read_csv(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices.csv", parse_dates=['timestampLogger'])
-
-    else:
-        dispadv_query = {"$and": 
-                        [{"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
-                        {"advices": {"$exists":True}}
-                        ]}
-        dispatchAdvices = pd.DataFrame(list(dataset.dispatchAdvices.find(dispadv_query)))
-        print('dataframe obtained.')
-        dispatchAdvices['timestamp'] = dispatchAdvices['time'].apply(adjust_time)
-        dispatchAdvices['timestampLogger'] = dispatchAdvices['timeWrittenByLogger'].apply(adjust_time)
-        
-        dispatchAdvices = dispatchAdvices.explode('advices',ignore_index=True)
-        dispatchAdvices.drop(['_id','time','timeWrittenByLogger'],axis=1,inplace=True)
-        unique_keys_adv = set()
-        for d in dispatchAdvices['advices']:
-            unique_keys_adv.update(d.keys())
-
-        for key in tqdm(unique_keys_adv):
-            dispatchAdvices[key] = dispatchAdvices['advices'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan)
-
-        dispatchAdvices = dispatchAdvices.sort_values(by=['timestamp']).reset_index(drop=True).drop(['advices'],axis=1)
-        dispatchAdvices = dispatchAdvices.rename(columns={'vehicleId' : 'vehicleCode'})
-        dispatchAdvices = dispatchAdvices[dispatchAdvices['requestId'].isin(unique_ids)].reset_index(drop=True) #only keep requestIDs that are present in updates dataset.
-        #add a column that describes whether dispatch advice was first / second / ... best option out of all options at that timestamp
-        #note, NA entries for advice_rank are because drivingTime is NA for this entry.
-        dispatchAdvices['advice_rank'] = dispatchAdvices.groupby(['timestamp','requestId'])['drivingTime'].rank(method='dense', ascending=True)
-        #add potential end timestamps to the dispatch_advices (dispAdvices) dataframe
-        dispatchAdvices['potential_end_time'] = dispatchAdvices['timestamp'] + pd.to_timedelta(dispatchAdvices['drivingTime'], unit='s')
-        # Save to CSV
-        # dispatchAdvices.to_csv(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices.csv", index=False)
-
-    #unique advices.
-    if previous and os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices.csv"):
-        print("Use CSV results.")
-        uniquedispatchAdvices = pd.read_csv(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices.csv", parse_dates=['timestampLogger'])
-
-    else:
-        uniquedispatchAdvices = dispatchAdvices.drop_duplicates(subset=['requestId', 'vehicleCode']).reset_index(drop=True)
-        # uniquedispatchAdvices.to_csv(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices.csv", index=False)
-
-    #advices per incident
-    uniqueAdvsPerIncident = list(uniquedispatchAdvices.groupby(['requestId']).count().timestamp)
-    advicesPerIncident= list(dispatchAdvices.groupby(['requestId']).count().timestamp)
-    advicesPerIncident.remove(max(advicesPerIncident)) #some reqID can get tens of thousands of advices
-
-    print(f"The average (mean) number of advices per incident is {int(np.mean(advicesPerIncident))} while the median number of advices is {int(np.median(advicesPerIncident))}.")
-    print(f"The average (mean) number of unique advices per incident is {round(np.mean(uniqueAdvsPerIncident),2)} while the median number of unique advices is {round(np.median(uniqueAdvsPerIncident))}.")
-    print(f"Between {start_date.strftime('%m/%d/%Y')} and {end_date.strftime('%m/%d/%Y')}, the number of "+
-          f"unique dispatch advices for urgencies A0/A1/A2 is {len(uniquedispatchAdvices)}. The total number of dispatch advices for A-incidents is {len(dispatchAdvices)}.")
-    print(f"The average (mean) number of unique daily advices is {round(len(uniquedispatchAdvices)/((end_date-start_date).days+1),2)}.")
-
-    
-    advicesPerIncident_dict = {'Total': advicesPerIncident, 'Unique': uniqueAdvsPerIncident}
-    #make a plot about this.
-    dict_perinc = advicesPerIncident_dict
-    return dispatchAdvices,uniquedispatchAdvices,advicesPerIncident_dict
 
 def FindAssignedCars012(dataset,start_date,end_date,regionId = 5):
     """  Function that extracts which cars were assigned to an incident in region 5 from updates Collection. So a filtered version of TimeUntilArrival012.
@@ -183,6 +126,7 @@ def FindAssignedCars012(dataset,start_date,end_date,regionId = 5):
         unique_keys_update.update(d.keys())
     for key in unique_keys_update:
         assignedCars012[key] = assignedCars012['requestUpdate'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan) 
+
     assignedCars012 = assignedCars012.reset_index().drop(['index','time','timeWrittenByLogger','_id','requestUpdate','regionId'],axis=1)
     assignedCars012 = assignedCars012.explode('dispatches').reset_index().drop('index',axis=1)
     unique_keys_disp = set()
@@ -190,18 +134,103 @@ def FindAssignedCars012(dataset,start_date,end_date,regionId = 5):
         unique_keys_disp.update(d.keys())
     for key in unique_keys_disp:
         assignedCars012[key] = assignedCars012['dispatches'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan)
-    
+
+    columns_not_objects = ['timestamp','timestampLogger']
+    assignedCars012 = assignedCars012.apply(lambda col: col if col.name in columns_not_objects else col.astype(str))
     assignedCars012 = assignedCars012.drop('dispatches',axis=1).dropna(axis=1, how='all').reset_index().drop('index',axis=1).sort_index(axis=1)
     assignedCars012['time_gap'] =(assignedCars012.timestamp-assignedCars012.timestampLogger).dt.total_seconds()
     assignedCars012 = assignedCars012[np.invert(assignedCars012.duplicated(subset=['requestId','coupledVehicle']))].reset_index().drop(['index'],axis=1)
 
     return assignedCars012
 
+def FindDispatchAdvices(area,previous,dataset,start_date,end_date,unique_ids):
+    start_date_string = start_date.strftime("%Y_%m_%d")
+    end_date_string = end_date.strftime("%Y_%m_%d")
+
+    """ With this function we find the non-na dispatch advices, as well as the unique ones and the #advs per incident.
+    We also create a plot on the number of advices and unique advices. Should take about one hour per simulated month"""
+
+    if previous and os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices"):
+        with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices", 'rb') as file:
+            print("Use pickle results.")
+            dispatchAdvices = pickle.load(file)
+            
+    else:
+        dispadv_query = {"$and": 
+                        [{"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
+                        {"advices": {"$exists":True}}
+                        ]}
+        dispatchAdvices = pd.DataFrame(list(dataset.dispatchAdvices.find(dispadv_query)))
+        print('dataframe obtained.')
+        dispatchAdvices['timestamp'] = dispatchAdvices['time'].apply(adjust_time)
+        dispatchAdvices['timestampLogger'] = dispatchAdvices['timeWrittenByLogger'].apply(adjust_time)
+        
+        dispatchAdvices = dispatchAdvices.explode('advices',ignore_index=True)
+        dispatchAdvices.drop(['_id','time','timeWrittenByLogger'],axis=1,inplace=True)
+        unique_keys_adv = set()
+        for d in dispatchAdvices['advices']:
+            unique_keys_adv.update(d.keys())
+
+        for key in tqdm(unique_keys_adv):
+            dispatchAdvices[key] = dispatchAdvices['advices'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan)
+        dispatchAdvices.drop(['advices'], axis=1, inplace=True)
+        # Downcast each float column to float32 to save some memory
+        float_columns = ['coverageAfterDispatch', 'coverageDifferenceAfterDispatch', 'drivingTime', 'coupledVehicleDrivingTime']
+        for col in float_columns:
+            if col in dispatchAdvices.columns:
+                dispatchAdvices[col] = pd.to_numeric(dispatchAdvices[col], downcast='float')
+
+        dispatchAdvices['requestId'] = dispatchAdvices['requestId'].astype(str)
+        # dispatchAdvices.sort_values(by=['timestamp'], inplace=True)
+        dispatchAdvices.rename(columns={'vehicleId': 'vehicleCode'}, inplace=True)
+        dispatchAdvices = dispatchAdvices[dispatchAdvices['requestId'].isin(unique_ids)].reset_index(drop=True)
+
+        # dispatchAdvices = dispatchAdvices.sort_values(by=['timestamp']).reset_index(drop=True).drop(['advices'],axis=1)
+        # dispatchAdvices = dispatchAdvices.rename(columns={'vehicleId' : 'vehicleCode'})
+        # dispatchAdvices = dispatchAdvices[dispatchAdvices['requestId'].isin(unique_ids)].reset_index(drop=True) #only keep requestIDs that are present in updates dataset.
+        # #add a column that describes whether dispatch advice was first / second / ... best option out of all options at that timestamp
+        # #note, NA entries for advice_rank are because drivingTime is NA for this entry.
+
+        dispatchAdvices['advice_rank'] = dispatchAdvices.groupby(['timestamp','requestId'])['drivingTime'].rank(method='dense', ascending=True)
+        #add potential end timestamps to the dispatch_advices (dispAdvices) dataframe
+        dispatchAdvices['potential_end_time'] = dispatchAdvices['timestamp'] + pd.to_timedelta(dispatchAdvices['drivingTime'], unit='s')
+        with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices", 'wb') as file:
+            pickle.dump(dispatchAdvices, file)
+
+    #unique advices.
+    if previous and os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices"):
+        with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices", 'rb') as file:
+            print("Use pickle results for unique dispatch advices as well.")
+            uniquedispatchAdvices = pickle.load(file)
+    else:
+        uniquedispatchAdvices = dispatchAdvices.drop_duplicates(subset=['requestId', 'vehicleCode']).reset_index(drop=True)
+        with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices", 'wb') as file:
+            pickle.dump(uniquedispatchAdvices, file)
+
+
+    #advices per incident
+    uniqueAdvsPerIncident = list(uniquedispatchAdvices.groupby(['requestId']).count().timestamp)
+    advicesPerIncident= list(dispatchAdvices.groupby(['requestId']).count().timestamp)
+    advicesPerIncident.remove(max(advicesPerIncident)) #some reqID can get tens of thousands of advices
+
+    print(f"The average (mean) number of advices per incident is {int(np.mean(advicesPerIncident))} while the median number of advices is {int(np.median(advicesPerIncident))}.")
+    print(f"The average (mean) number of unique advices per incident is {round(np.mean(uniqueAdvsPerIncident),2)} while the median number of unique advices is {round(np.median(uniqueAdvsPerIncident))}.")
+    print(f"Between {start_date.strftime('%m/%d/%Y')} and {end_date.strftime('%m/%d/%Y')}, the number of "+
+          f"unique dispatch advices for urgencies A0/A1/A2 is {len(uniquedispatchAdvices)}. The total number of dispatch advices for A-incidents is {len(dispatchAdvices)}.")
+    print(f"The average (mean) number of unique daily advices is {round(len(uniquedispatchAdvices)/((end_date-start_date).days+1),2)}.")
+
+    
+    advicesPerIncident_dict = {'Total': advicesPerIncident, 'Unique': uniqueAdvsPerIncident}
+    #make a plot about this.
+    dict_perinc = advicesPerIncident_dict
+    return dispatchAdvices,uniquedispatchAdvices,advicesPerIncident_dict
+
 def CompareDispatch(assignedCars, dispAdvices):
     '''for given dataframes assignedCars (all assigned cars to incidents) and dispAdvices (all dispatch advices),
     this function creates statistics that show how many (and whether it was 1st / 2nd / ... option) advices were followed'''
     # Create a new dataframe based on assignedCars with selected columns
     df_new = assignedCars[['timestamp', 'requestId', 'coupledVehicle', 'urgency']].copy()
+    print(type(assignedCars.requestId[0]),type(assignedCars.coupledVehicle[0]),type(dispAdvices.requestId[0]),type(dispAdvices.vehicleCode[0]))
     # Merge with dispAdvices to find matches, using the indicator=True to get the _merge column
     merged = pd.merge(
         df_new,
@@ -241,8 +270,8 @@ def CompareDispatch(assignedCars, dispAdvices):
 
     return df_final
 
-def DispatchStatsPlots(DispStats_df, group_by_period='week'):
-    ''' Make some plots with the dispatch statistics dataframe group_by_period should be either day, week, or month'''
+def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
+    ''' Make ranking with the dispatch statistics dataframe group_by_period should be either day, week, or month'''
     
     DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
     # Filter out rows with None in advice_rank and calculate percentages
@@ -268,69 +297,77 @@ def DispatchStatsPlots(DispStats_df, group_by_period='week'):
     advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
 
     df = advice_rank_percentages
-    df_weeks_str = [str(week) for week in df.index.to_list()]
+    weeks        = df.index.to_list()
+    df_weeks_str = [str(week) for week in weeks]
     data_dict = {'weeks' : df_weeks_str}
     for rank in df.columns.to_list():
         data_dict[f"{rank}"] = df[rank].values
     advice_ranks = df.columns.to_list()  # Ensure these match your actual column names
-    weeks        = df.index.to_list()
-    colors       = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
 
-    p = figure(x_range=df_weeks_str, plot_height=600, plot_width=1000, 
+    # Now prepare the incidents vs dispatches plot
+    incidents_per_period = DispStats_df.groupby(group_by_period)['requestId'].nunique()
+    dispatches_per_period = DispStats_df.groupby(group_by_period).size()
+    comparison_df = pd.DataFrame({
+            '# Incidents': incidents_per_period,
+            '# Dispatches': dispatches_per_period }).reset_index()
+    incVdisp         = [ (str(week), column) for week in comparison_df.week for column in comparison_df.columns[1:]]
+    incVdisp_counts  = comparison_df[comparison_df.columns[1:]].values.flatten().tolist()
+    incVdisp_source  = ColumnDataSource(data=dict(x=incVdisp, counts=incVdisp_counts))
+
+    palette = Category10_3  # You can also choose another palette with more colors if needed
+    colors = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
+
+    p2 = figure(x_range=FactorRange(*incVdisp), height=500, 
+                title=f'Number of Incidents vs Number of Dispatches per Week',
+                toolbar_location=None, tools="")
+
+    p2.vbar(x='x', top='counts', width=0.9, source=incVdisp_source, line_color="white", 
+            fill_color=factor_cmap('x', palette=palette, factors=['# Incidents', '# Dispatches'], start=1, end=2))
+
+    # Customize the plot appearance
+    p2.y_range.start = 0
+    p2.x_range.range_padding = 0.1
+    p2.xgrid.grid_line_color = None
+
+    p1 = figure(x_range=df_weeks_str, plot_height=600, 
             title   = f'Incident Advice Distribution per {group_by_period.capitalize()}', 
             toolbar_location=None, tools="", y_range=(0, 100))
 
     # Plot the stacked bars
-    p.vbar_stack([str(rank) for rank in advice_ranks],x='weeks', width=0.9, color=colors, source=data_dict, 
+    p1.vbar_stack([str(rank) for rank in advice_ranks],x='weeks', width=0.9, color=colors, source=data_dict, 
                 legend_label=[f'Advice {rank}' if int(rank) <= 4 else 'Advice 5 - Higher' for rank in advice_ranks])
     # Customize plot labels
-    p.xaxis.axis_label = group_by_period.capitalize()  # Example: 'Week'
-    p.yaxis.axis_label = 'Percentage of Incidents'
+    p1.xaxis.axis_label = group_by_period.capitalize()  # Example: 'Week'
+    p1.yaxis.axis_label = 'Percentage of Incidents'
 
     # Set y-axis ticks and labels
-    p.yaxis.ticker = [i for i in range(0, 101, 10)]
-    p.yaxis.major_label_overrides = {i: f'{i}%' for i in range(0, 101, 10)}
+    p1.yaxis.ticker = [i for i in range(0, 101, 10)]
+    p1.yaxis.major_label_overrides = {i: f'{i}%' for i in range(0, 101, 10)}
     # Customize legend
-    p.legend.title = 'Advice Ranks'
-    p.legend.location = 'left'
-    p.legend.orientation = 'horizontal'
+    p1.legend.title = 'Advice Ranks'
+    p1.legend.location = 'left'
+    p1.legend.orientation = 'horizontal'
 
-    #now grouped by urgency categories
-    
-    # advice_rank_counts = df_filtered.groupby([group_by_period, 'urgency', 'advice_rank_grouped']).size().unstack(fill_value=0)
-    # advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
-    # #now a plot of number of dispatches vs number of incidents
-    # incidents_per_period = DispStats_df.groupby(group_by_period)['requestId'].nunique()
-    # dispatches_per_period = DispStats_df.groupby(group_by_period).size()
-    # comparison_df = pd.DataFrame({
-    #     'Number of Incidents': incidents_per_period,
-    #     'Number of Dispatches': dispatches_per_period
-    # }).reset_index()
-    
-    # Now a plot of average driving times compared to shortest possible driving time per day / week / month, per urgency
-    # daily_differences = DispStats_df[DispStats_df['urgency'].isin(['A0', 'A1', 'A2'])].groupby([group_by_period, 'urgency'])['time_difference'].median().unstack()
-    return p
+    return row(p1,p2)
 
-def mongoDBimportTwente(startMonth,startDay,endMonth,endDay,boolean):
+def mongoDBimportTwente(area,startMonth,startDay,endMonth,endDay,boolean):
     loc_to_sta_rounded = {tuple(np.round(key,2)) : value for key, value in loc_to_sta_oost.items()}
     previous = [True,False][boolean]
     client = MongoClient("mongodb+srv://seconds:test%5EMe%5E%5E@cluster0.z9k9jkv.mongodb.net/")
     dataset = client.aon_prd_V2
-    start_date = datetime.datetime(2024, startMonth, startDay)
-    #since 2 hours are added after 31 SMarch, in order to get data until end of march, do until 22:00
-    end_date = datetime.datetime(2024, endMonth, endDay, 21, 59, 59)
-    start_date_string = start_date.strftime("%Y_%m_%d")
-    end_date_string = end_date.strftime("%Y_%m_%d")
+    start_date = datetime.datetime(2024, startMonth, startDay, 0 , 0, 0)
+    #since 2 hours are added after 31 of March, in order to get data until end of march, do until 22:00
+    end_date = datetime.datetime(2024, endMonth, endDay, 23, 59, 59)
 
     TimeUntilArrival012_df, uniqueIDs                             = TimeUntilArrival012(dataset,start_date,end_date)
-    print('done')
+    print('TimeUntilArrival done')
     AssignedCars_df                                               = FindAssignedCars012(dataset,start_date,end_date)
-    print('done')
-    DispAdvices_df, UniqueDispAdvices_df, AdvicesPerIncident_dict = FindDispatchAdvices(previous,dataset,start_date,end_date,uniqueIDs)
-    print('done')
+    print('Assigned Cars done')
+    DispAdvices_df, UniqueDispAdvices_df, AdvicesPerIncident_dict = FindDispatchAdvices(area,previous,dataset,start_date,end_date,uniqueIDs)
+    print('DispatchAdvices done')
     DispStats_df                                                  = CompareDispatch(AssignedCars_df,DispAdvices_df)
-    print('done')
+    print('DispatchStats done')
 
-    return DispatchStatsPlots(DispStats_df)
+    return DispatchRanksNumsPlots(DispStats_df)
 
 # mongoDBimportTwente(8,1,8,5,1)
