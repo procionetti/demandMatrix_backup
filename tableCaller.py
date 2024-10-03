@@ -79,7 +79,7 @@ def update_plot(attr, old, new):
     p = make_plot(region,month,day,urgency)
     # Update the layout, clear the old document and display the new document
     sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
-    layot = layout([p, sliders],adviceRanks)
+    layot = layout([p, sliders],[adviceRanks,advRanksMonths_rad])
     curdoc().clear()
     curdoc().add_root(layot)
     # Update the data
@@ -89,9 +89,8 @@ def update_RanksPlot(attr, old, new):
     month    = advRanksMonths_rad.active + 1
     # Update the plot based on the changed inputs
     lens = [31,29,31,30,31,30,31,31,30,31,30,31]
-    p = mongoDBimportTwente("twente",month+1,1,month+1,lens[month-1],1)
-    # Update the layout, clear the old document and display the new document
-    sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
+    print(month,1,month,lens[month-1])
+    adviceRanks = mongoDBimportTwente("twente",month,1,month,lens[month-1],0)
     layot = layout([p, sliders],[adviceRanks,advRanksMonths_rad])
     curdoc().clear()
     curdoc().add_root(layot)
@@ -129,7 +128,7 @@ def make_plot(region,month,day,urgency):
 # 6) Call the plotting function 
 p = make_plot(1,1,1,1)
 # 6b) Call external plotting function
-adviceRanks = mongoDBimportTwente("twente",1,1,1,2,0) #start and end date + boolean=False(1) as no saved tables yet
+adviceRanks = mongoDBimportTwente("twente",1,1,1,31,0) #start and end date + boolean=False(1) as no saved tables yet
 # 6c) Add months checkbox for Bottom plots
 advRanksMonths_rad = RadioButtonGroup(labels=Month_Labels, active=0)
 advRanksMonths_rad.on_change('active', update_RanksPlot) # rad_group returns [i,j] if i,j clicked, otherwise [].

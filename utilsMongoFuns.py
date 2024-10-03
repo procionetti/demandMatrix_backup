@@ -203,6 +203,7 @@ def FindDispatchAdvices(area,previous,dataset,start_date,end_date,unique_ids):
             print("Use pickle results for unique dispatch advices as well.")
             uniquedispatchAdvices = pickle.load(file)
     else:
+        print("previous pickle file does not exist, check for mistakes")
         uniquedispatchAdvices = dispatchAdvices.drop_duplicates(subset=['requestId', 'vehicleCode']).reset_index(drop=True)
         with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices", 'wb') as file:
             pickle.dump(uniquedispatchAdvices, file)
@@ -322,7 +323,7 @@ def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
                 toolbar_location=None, tools="")
 
     p2.vbar(x='x', top='counts', width=0.9, source=incVdisp_source, line_color="white", 
-            fill_color=factor_cmap('x', palette=palette, factors=['# Incidents', '# Dispatches'], start=1, end=2))
+            fill_color=factor_cmap('x', palette=palette, factors=['# Incs', '# Disps'], start=1, end=2))
 
     # Customize the plot appearance
     p2.y_range.start = 0
