@@ -35,12 +35,26 @@ from utilsMongoFuns import *
 # 1) Define Regions dictionary and Call saved geotables as geodataframes
 #regionCode = int(input("Insert 1 for FLGV and 2 for Twente:_____"))
 regios_dict = {1:"FGV",2:"Twente"}
-
+connection_string_suffixs = {"ijs":"aij_prd_V2",
+                             "twente":"aon_prd_V2",
+                             "aa": "ams_prd_V2",
+                             "zhz":"zhz_prd_V2",
+                             "bn":"bn_prd",
+                             "bzo":"bzo_prd",
+                             "fgm":"fgm_prd_V2"}
+regionIds = {"ijs": 4,
+             "twente": 5,
+             "aa": 13,
+             "zhz": 18,
+             "bn": 21,
+             "bzo": 22,
+             "fgm": 25}
 #hexgrid1 = gpd.read_file(f'saved_tables/hexgrid{regios_dict[regionCode]}_2122_A1.geojson')
 #hexgrid2 = gpd.read_file(f'saved_tables/hexgrid{regios_dict[regionCode]}_2122_A2.geojson')
 #hexgrids = [hexgrid1,hexgrid2]
 
 # 2) Define date labels and sequential multi-hue color palette and reverse color order so that dark blue is highest obesity.
+areas = ["ijs","twente","aa","zhz","bn","bzo","fgm"]
 Day_Labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 Month_Labels= ["January","February","March","April","May","June","July","August","September","October","November","December"]
 palette = brewer['Blues'][8]
@@ -79,7 +93,8 @@ def update_plot(attr, old, new):
     p = make_plot(region,month,day,urgency)
     # Update the layout, clear the old document and display the new document
     sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
-    layot = layout([p, sliders],[adviceRanks,advRanksMonths_rad])
+    ranks_tools = column(advRanksMonths_rad,advRanksRegions)
+    layot = layout([p, sliders],[adviceRanksPlot,ranks_tools])
     curdoc().clear()
     curdoc().add_root(layot)
     # Update the data
@@ -90,8 +105,9 @@ def update_RanksPlot(attr, old, new):
     # Update the plot based on the changed inputs
     lens = [31,29,31,30,31,30,31,31,30,31,30,31]
     print(month,1,month,lens[month-1])
-    adviceRanks = mongoDBimportTwente("twente",month,1,month,lens[month-1],0)
-    layot = layout([p, sliders],[adviceRanks,advRanksMonths_rad])
+    adviceRanksPlot = mongoDBimportTwente("twente",month,1,month,lens[month-1])
+    ranks_tools = column(advRanksMonths_rad,advRanksRegions)
+    layot = layout([p, sliders],[adviceRanksPlot,ranks_tools])
     curdoc().clear()
     curdoc().add_root(layot)
     # # Update the data
@@ -128,9 +144,9 @@ def make_plot(region,month,day,urgency):
 # 6) Call the plotting function 
 p = make_plot(1,1,1,1)
 # 6b) Call external plotting function
-adviceRanks = mongoDBimportTwente("twente",1,1,1,31,0) #start and end date + boolean=False(1) as no saved tables yet
+adviceRanksPlot = mongoDBimportTwente("twente",1,1,1,31) #start and end date + boolean=False(1) as no saved tables yet
 # 6c) Add months checkbox for Bottom plots
-advRanksMonths_rad = RadioButtonGroup(labels=Month_Labels, active=0)
+advRanksMonths_rad = RadioButtonGroup(labels=Month_Labels[:10], active=0)
 advRanksMonths_rad.on_change('active', update_RanksPlot) # rad_group returns [i,j] if i,j clicked, otherwise [].
 # 7) Add checkbox group for weekdays. 
 rad_group = RadioButtonGroup(labels=Day_Labels, active=0)
@@ -138,6 +154,9 @@ rad_group.on_change('active', update_plot) # rad_group returns [i,j] if i,j clic
 # 8) Add checkbox group for regions 
 rad_regio = RadioButtonGroup(labels=list(regios_dict.values()), active=0)
 rad_regio.on_change('active', update_plot)
+# 8b) Add regions button for lower plots as well
+advRanksRegions = RadioButtonGroup(labels=list(regionIds.keys()), active=1)
+advRanksRegions.on_change('active', update_RanksPlot)
 # Make a MONTHS buttonGroup object 
 mon_slider =  RadioButtonGroup(labels=Month_Labels, active=0)
 mon_slider.on_change('active', update_plot)
@@ -147,6 +166,7 @@ urg_slider.on_change('value', update_plot)
 # 9) Make a column layout of widgetbox(slider) and plot, and add it to the current document
 # Display the current document
 sliders = column(rad_regio,mon_slider,urg_slider,rad_group)
-layot = layout([p, sliders],[adviceRanks,advRanksMonths_rad])
+ranks_tools = column(advRanksMonths_rad,advRanksRegions)
+layot = layout([p, sliders],[adviceRanksPlot,ranks_tools])
 #layout = column(p, widgetbox(mon_slider), widgetbox(day_slider), widgetbox(urg_slider))
 curdoc().add_root(layot)
