@@ -76,7 +76,7 @@ def adjust_time(timestr):
     else:
         return dt + datetime.timedelta(hours=1)  # Add 1 hour
 
-def TimeUntilArrival012(dataset,start_date,end_date,regionId): #5 for Twente
+def TimeUntilArrival012(dataset,start_date,end_date,regionId): 
     """ Function that obtains total driving time in total_time_until_arrival column, as well as unique ids. (this function contains no filtering, so no ids that do not contain open column are filtered out.)
     Note that a problem is that the atRequest==True statement is in some cases (approx. 10-15 percent) not found, so that we cannot derive
     (at least not from that) the time the vehicle arrived, leading to some None values at the total_driving_time column. Need to
@@ -85,7 +85,7 @@ def TimeUntilArrival012(dataset,start_date,end_date,regionId): #5 for Twente
                     [{"requestUpdate.urgency": {"$in": ["A1", "A2", "A0"]}},
                     {"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
                     {"requestUpdate.regionId": regionId},
-                    {"requestUpdate.isRelocation":{"$exists":False}},
+                    {"requestUpdate.isRelocation":{"$exists":False}}
                     ]}
     assignedCars012 = pd.DataFrame(list(dataset['updates'].find(Assigned_query))) 
     assignedCars012['timestamp'] = assignedCars012['time'].apply(adjust_time)
@@ -122,8 +122,7 @@ def TimeUntilArrival012(dataset,start_date,end_date,regionId): #5 for Twente
     assignedCars012 = pd.merge(assignedCars012, times_df['total_time_until_arrival'], on='requestId', how='left')    
     return assignedCars012,unique_ids
 
-def FindAssignedCars012(area,dataset,start_date,end_date):
-    regionId = regionIds[area]
+def FindAssignedCars012(area,dataset,start_date,end_date,regionId):
     """  Function that extracts which cars were assigned to an incident in region 5 from updates Collection. So a filtered version of TimeUntilArrival012.
     But on the other hand no atRequest==True filters. """
     start_date_string = start_date.strftime("%Y_%m_%d")
@@ -135,7 +134,7 @@ def FindAssignedCars012(area,dataset,start_date,end_date):
     else:
         Assigned_query = {"$and": 
                         [{"requestUpdate.urgency": {"$in": ["A1", "A2", "A0"]}},
-                        {"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
+                        #{"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
                         {"requestUpdate.regionId": regionId},
                         {"requestUpdate.isRelocation":{"$exists":False}},
                         {"requestUpdate.dispatches.coupledVehicle": {"$exists":True}} #checks whether a vehicle is coupled to an incident. This factor should be present for checking when a car is assigned to an incident
@@ -363,13 +362,11 @@ def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
     p2 = figure(x_range=FactorRange(*incVdisp), height=600, 
                 title=f'Number of Incidents vs Number of Dispatches per Week',
                 toolbar_location=None, tools="")
-
+    factors = ['# Incs', '# Disps']
     p2.vbar(x='x', top='counts', width=0.9, source=incVdisp_source, line_color="white", 
-            fill_color=factor_cmap('x', palette=['#1f77b4','#ff7f0e'], factors=['# Incs', '# Disps'], start=1, end=2))
+            fill_color=factor_cmap('x', palette=['#1f77b4','#ff7f0e'], factors=factors, start=1, end=2))
 
     # Customize the plot appearance
-    p2.legend.location = 'left'
-    p2.legend.orientation = 'vertical'
     p2.xaxis.major_label_orientation = "vertical"
     p2.y_range.start = 0
     p2.x_range.range_padding = 0.1
@@ -378,16 +375,23 @@ def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
     return row(p1,p2)
 
 def mongoDBimportTwente(area,startMonth,startDay,endMonth,endDay):
+    #create folders where results are saved
+    os.makedirs("regions", exist_ok=True)
+    os.makedirs(f"regions/{area}", exist_ok=True)
+    os.makedirs(f"regions/{area}/saved_results", exist_ok=True)
+    os.makedirs(f"regions/{area}/saved_assigned", exist_ok=True)
+
     loc_to_sta_rounded = {tuple(np.round(key,2)) : value for key, value in loc_to_sta_oost.items()}
     client = MongoClient("mongodb+srv://seconds:test%5EMe%5E%5E@cluster0.z9k9jkv.mongodb.net/")
     dataset = client[connection_string_suffixs.get(area)]
+    regioId = regionIds.get(area)
     start_date = datetime.datetime(2024, startMonth, startDay, 0 , 0, 0)
     #since 2 hours are added after 31 of March, in order to get data until end of march, do until 22:00
     end_date = datetime.datetime(2024, endMonth, endDay, 23, 59, 59)
 
-    TimeUntilArrival012_df, uniqueIDs                             = TimeUntilArrival012(dataset,start_date,end_date,regionId=5)
+    TimeUntilArrival012_df, uniqueIDs                             = TimeUntilArrival012(dataset,start_date,end_date,regioId)
     print('TimeUntilArrival done')
-    AssignedCars_df                                               = FindAssignedCars012(area,dataset,start_date,end_date)
+    AssignedCars_df                                               = FindAssignedCars012(area,dataset,start_date,end_date,regionId=regioId)
     print('Assigned Cars done')
     DispAdvices_df, UniqueDispAdvices_df, AdvicesPerIncident_dict = FindDispatchAdvices(area,dataset,start_date,end_date,uniqueIDs)
     print('DispatchAdvices done')

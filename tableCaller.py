@@ -99,13 +99,15 @@ def update_plot(attr, old, new):
     curdoc().add_root(layot)
     # Update the data
     geosource.geojson = new_data
-# 4b) 
+
+# 4b) Update advice ranks plot
 def update_RanksPlot(attr, old, new):
-    month    = advRanksMonths_rad.active + 1
+    month    = advRanksMonths_rad.active + 1 
+    area = areas[advRanksRegions.active]
     # Update the plot based on the changed inputs
     lens = [31,29,31,30,31,30,31,31,30,31,30,31]
-    print(month,1,month,lens[month-1])
-    adviceRanksPlot = mongoDBimportTwente("twente",month,1,month,lens[month-1])
+    print(area,month,1,month,lens[month-1])
+    adviceRanksPlot = mongoDBimportTwente(area,month,1,month,lens[month-1])
     ranks_tools = column(advRanksMonths_rad,advRanksRegions)
     layot = layout([p, sliders],[adviceRanksPlot,ranks_tools])
     curdoc().clear()
@@ -144,7 +146,7 @@ def make_plot(region,month,day,urgency):
 # 6) Call the plotting function 
 p = make_plot(1,1,1,1)
 # 6b) Call external plotting function
-adviceRanksPlot = mongoDBimportTwente("twente",1,1,1,31) #start and end date + boolean=False(1) as no saved tables yet
+adviceRanksPlot = mongoDBimportTwente("ijs",1,1,1,31) #start and end date + boolean=False(1) as no saved tables yet
 # 6c) Add months checkbox for Bottom plots
 advRanksMonths_rad = RadioButtonGroup(labels=Month_Labels[:10], active=0)
 advRanksMonths_rad.on_change('active', update_RanksPlot) # rad_group returns [i,j] if i,j clicked, otherwise [].
@@ -155,7 +157,7 @@ rad_group.on_change('active', update_plot) # rad_group returns [i,j] if i,j clic
 rad_regio = RadioButtonGroup(labels=list(regios_dict.values()), active=0)
 rad_regio.on_change('active', update_plot)
 # 8b) Add regions button for lower plots as well
-advRanksRegions = RadioButtonGroup(labels=list(regionIds.keys()), active=1)
+advRanksRegions = RadioButtonGroup(labels=list(regionIds.keys()), active=0)
 advRanksRegions.on_change('active', update_RanksPlot)
 # Make a MONTHS buttonGroup object 
 mon_slider =  RadioButtonGroup(labels=Month_Labels, active=0)
