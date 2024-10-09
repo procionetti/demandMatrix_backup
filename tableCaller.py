@@ -18,7 +18,7 @@ import os
 import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import plotly.express as px
-
+import re
 import json
 import pyogrio
 
@@ -30,7 +30,9 @@ from bokeh.io.doc import curdoc
 from bokeh.layouts import widgetbox, row, column, gridplot, layout
 from utilsMongoFuns import *
 
+# 0) Select first area
 
+FirstArea = "aa"
 
 # 1) Define Regions dictionary and Call saved geotables as geodataframes
 #regionCode = int(input("Insert 1 for FLGV and 2 for Twente:_____"))
@@ -59,6 +61,9 @@ Day_Labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 Month_Labels= ["January","February","March","April","May","June","July","August","September","October","November","December"]
 palette = brewer['Blues'][8]
 palette = palette[::-1]
+lens = [31,29,31,30,31,30,31,31,30,31,30,31]
+# define variable of previous selected month so as to keep it the same when changing region
+previousSelectedMonth = None;
 
 # 3) Function that returns json_data for the region+month+weekday+urgency selected 
 def json_data(selectedRegion,selectedMonth,selectedDay,selectedUrgency):
@@ -102,18 +107,22 @@ def update_plot(attr, old, new):
 
 # 4b) Update advice ranks plot
 def update_RanksPlot(attr, old, new):
-    month    = advRanksMonths_rad.active + 1 
-    area = areas[advRanksRegions.active]
-    # Update the plot based on the changed inputs
-    lens = [31,29,31,30,31,30,31,31,30,31,30,31]
-    print(area,month,1,month,lens[month-1])
+    monthIndex  = advRanksMonths_rad.active # what is the current month?
+    monthName =  advRanksMonths_rad.labels[monthIndex] # what is the name of the current month?
+    print(f'the current month is {monthName}')
+    area = areas[advRanksRegions.active]    # the new area is ...
+    monthsLabels = monthsSelector(area) # the new area has data for these months
+    advRanksMonths_rad.labels = monthsLabels
+    if monthName in monthsLabels:
+        advRanksMonths_rad.active = advRanksMonths_rad.labels.index(monthName)
+    else:
+        advRanksMonths_rad.active = 0
+    month = Month_Labels.index(monthName)+1 #extract real month corresponding to label on dashboard, add 1 because extracts it from the list of labels, so March:2 => add 1 to get 3.
     adviceRanksPlot = mongoDBimportTwente(area,month,1,month,lens[month-1])
     ranks_tools = column(advRanksMonths_rad,advRanksRegions)
     layot = layout([p, sliders],[adviceRanksPlot,ranks_tools])
     curdoc().clear()
     curdoc().add_root(layot)
-    # # Update the data
-    # geosource.geojson = new_data
 
 # 5) Create a plotting function which defines what the plot looks like 
 def make_plot(region,month,day,urgency):    
@@ -139,16 +148,17 @@ def make_plot(region,month,day,urgency):
   # Add patch renderer to figure. 
   p.patches('xs','ys', source = geosource, fill_color = {'field' : date, 'transform' : color_mapper},
           line_color = 'black', line_width = 0.25, fill_alpha = 1)
-  # Specify color bar layout.
+  # Specify color bar layout.   
   p.add_layout(color_bar, 'right')
   return p
 
 # 6) Call the plotting function 
 p = make_plot(1,1,1,1)
 # 6b) Call external plotting function
-adviceRanksPlot = mongoDBimportTwente("ijs",1,1,1,31) #start and end date + boolean=False(1) as no saved tables yet
+firstMonth = Month_Labels.index(monthsSelector(FirstArea)[0])+1
+adviceRanksPlot = mongoDBimportTwente(FirstArea,firstMonth,1,firstMonth,lens[firstMonth-1]) #start and end date + boolean=False(1) as no saved tables yet
 # 6c) Add months checkbox for Bottom plots
-advRanksMonths_rad = RadioButtonGroup(labels=Month_Labels[:10], active=0)
+advRanksMonths_rad = RadioButtonGroup(labels=monthsSelector(FirstArea), active=0)
 advRanksMonths_rad.on_change('active', update_RanksPlot) # rad_group returns [i,j] if i,j clicked, otherwise [].
 # 7) Add checkbox group for weekdays. 
 rad_group = RadioButtonGroup(labels=Day_Labels, active=0)
@@ -157,7 +167,7 @@ rad_group.on_change('active', update_plot) # rad_group returns [i,j] if i,j clic
 rad_regio = RadioButtonGroup(labels=list(regios_dict.values()), active=0)
 rad_regio.on_change('active', update_plot)
 # 8b) Add regions button for lower plots as well
-advRanksRegions = RadioButtonGroup(labels=list(regionIds.keys()), active=0)
+advRanksRegions = RadioButtonGroup(labels=list(regionIds.keys()), active = areas.index(FirstArea))
 advRanksRegions.on_change('active', update_RanksPlot)
 # Make a MONTHS buttonGroup object 
 mon_slider =  RadioButtonGroup(labels=Month_Labels, active=0)

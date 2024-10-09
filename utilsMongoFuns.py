@@ -17,6 +17,7 @@ import math
 import panel
 import sys
 import time
+import re
 #import hvplot.pandas # Adds .hvplot and .interactive methods to Pandas dataframes
 import panel as pn # Panel is a simple, flexible and enterprise-ready data app framework
 import numpy.ma as ma
@@ -65,6 +66,17 @@ regionIds = {"ijs": 4,
              "bzo": 22,
              "fgm": 25}
 #round up, needed so that we can match coordinates of performed relocations to these stations. If we rounc up to too many digits, no matches will be found.
+
+def monthsSelector(area):
+    directory = f'regions/{area}/saved_results/'
+    # Regex pattern to match the filenames and extract the month
+    pattern = re.compile(r"\d{4}_(\d{2})_\d{2}_\d{4}_\d{2}_\d{2}_dispatchAdvices")
+    # Extract the months
+    monthsInDir = [int(match.group(1)) for filename in os.listdir(directory) if (match := pattern.match(filename))]
+    if monthsInDir:
+        month_list = list(range(min(monthsInDir), max(monthsInDir) + 1))
+    monthsLabels = [months[month-1] for month in month_list]
+    return monthsLabels
 
 def adjust_time(timestr):
     if isinstance(timestr, float):  # In case there's a float
@@ -132,9 +144,10 @@ def FindAssignedCars012(area,dataset,start_date,end_date,regionId):
             print("Use pickle results for assigned cars.")
             assignedCars012 = pickle.load(file)
     else:
+        print('no pickle tables yet. making it now.')
         Assigned_query = {"$and": 
                         [{"requestUpdate.urgency": {"$in": ["A1", "A2", "A0"]}},
-                        #{"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
+                        {"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
                         {"requestUpdate.regionId": regionId},
                         {"requestUpdate.isRelocation":{"$exists":False}},
                         {"requestUpdate.dispatches.coupledVehicle": {"$exists":True}} #checks whether a vehicle is coupled to an incident. This factor should be present for checking when a car is assigned to an incident
@@ -295,17 +308,6 @@ def CompareDispatch(assignedCars, dispAdvices):
 
 def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
     ''' Make ranking with the dispatch statistics dataframe group_by_period should be either day, week, or month'''
-    
-    DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
-    # Filter out rows with None in advice_rank and calculate percentages
-    df_filtered = DispStats_df.copy()
-    df_filtered = df_filtered.dropna(subset=['advice_rank'])
-    df_filtered['advice_rank'] = df_filtered['advice_rank'].astype(int)
-
-    # Group advice ranks of 5 or higher into one category
-    df_filtered['advice_rank_grouped'] = df_filtered['advice_rank'].apply(lambda x: x if x <= 4 else 5)
-    advice_rank_counts = df_filtered.groupby([group_by_period, 'advice_rank_grouped']).size().unstack(fill_value=0)
-    advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
 
     # Plot the percentages of each advice_rank
     DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
@@ -337,7 +339,6 @@ def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
     incVdisp_counts  = comparison_df[comparison_df.columns[1:]].values.flatten().tolist()
     incVdisp_source  = ColumnDataSource(data=dict(x=incVdisp, counts=incVdisp_counts))
 
-    palette = Category10_3  # You can also choose another palette with more colors if needed
     colors = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
 
     p1 = figure(x_range=df_weeks_str, plot_height=600, 
@@ -387,7 +388,8 @@ def mongoDBimportTwente(area,startMonth,startDay,endMonth,endDay):
     regioId = regionIds.get(area)
     start_date = datetime.datetime(2024, startMonth, startDay, 0 , 0, 0)
     #since 2 hours are added after 31 of March, in order to get data until end of march, do until 22:00
-    end_date = datetime.datetime(2024, endMonth, endDay, 23, 59, 59)
+    end_date = datetime.datetime(2024, endMonth, endDay, 21, 59, 59)
+    print(area,startMonth,startDay,endMonth,endDay)
 
     TimeUntilArrival012_df, uniqueIDs                             = TimeUntilArrival012(dataset,start_date,end_date,regioId)
     print('TimeUntilArrival done')
