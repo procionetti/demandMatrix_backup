@@ -137,7 +137,6 @@ def make_plot(region,month,day,urgency):
   color_mapper = LinearColorMapper(palette = palette, low = min_range, high = max_range)
   # Create color bar.
   color_bar = ColorBar(color_mapper=color_mapper, label_standoff=18,border_line_color=None, location = (0, 0))
-
   # Create figure object.
   p = figure(title = f"Average number of A{urgency} incidents on {Day_Labels[day-1]}\'s of {Month_Labels[month-1]} in {regios_dict[region]}", 
             plot_height = 650, plot_width = 850,

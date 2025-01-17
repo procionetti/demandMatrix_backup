@@ -47,6 +47,7 @@ loc_to_sta_oost = {(52.335954653064526, 6.639791503190925): 'ALC',
                     (52.45268694795758, 6.577865358616354): 'VRM', 
                     (52.40562629264381, 6.63395867281057): 'VZV', 
                     (52.35155, 6.85717): 'WRS'}
+
 stationsDict = {station:index for index,station in enumerate(loc_to_sta_oost.values())}
 #define lists for weekdays, weeks, months
 weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -65,8 +66,8 @@ regionIds = {"ijs": 4,
              "bn": 21,
              "bzo": 22,
              "fgm": 25}
-#round up, needed so that we can match coordinates of performed relocations to these stations. If we rounc up to too many digits, no matches will be found.
 
+#round up, needed so that we can match coordinates of performed relocations to these stations. If we rounc up to too many digits, no matches will be found.
 def monthsSelector(area):
     directory = f'regions/{area}/saved_results/'
     # Regex pattern to match the filenames and extract the month
