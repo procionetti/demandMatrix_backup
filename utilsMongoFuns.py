@@ -17,6 +17,7 @@ import math
 import panel
 import sys
 import time
+import re
 #import hvplot.pandas # Adds .hvplot and .interactive methods to Pandas dataframes
 import panel as pn # Panel is a simple, flexible and enterprise-ready data app framework
 import numpy.ma as ma
@@ -46,11 +47,37 @@ loc_to_sta_oost = {(52.335954653064526, 6.639791503190925): 'ALC',
                     (52.45268694795758, 6.577865358616354): 'VRM', 
                     (52.40562629264381, 6.63395867281057): 'VZV', 
                     (52.35155, 6.85717): 'WRS'}
+
 stationsDict = {station:index for index,station in enumerate(loc_to_sta_oost.values())}
 #define lists for weekdays, weeks, months
 weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+connection_string_suffixs = {"ijs":"aij_prd_V2",
+                             "twente":"aon_prd_V2",
+                             "aa": "ams_prd_V2",
+                             "zhz":"zhz_prd_V2",
+                             "bn":"bn_prd",
+                             "bzo":"bzo_prd",
+                             "fgm":"fgm_prd_V2"}
+regionIds = {"ijs": 4,
+             "twente": 5,
+             "aa": 13,
+             "zhz": 18,
+             "bn": 21,
+             "bzo": 22,
+             "fgm": 25}
+
 #round up, needed so that we can match coordinates of performed relocations to these stations. If we rounc up to too many digits, no matches will be found.
+def monthsSelector(area):
+    directory = f'regions/{area}/saved_results/'
+    # Regex pattern to match the filenames and extract the month
+    pattern = re.compile(r"\d{4}_(\d{2})_\d{2}_\d{4}_\d{2}_\d{2}_dispatchAdvices")
+    # Extract the months
+    monthsInDir = [int(match.group(1)) for filename in os.listdir(directory) if (match := pattern.match(filename))]
+    if monthsInDir:
+        month_list = list(range(min(monthsInDir), max(monthsInDir) + 1))
+    monthsLabels = [months[month-1] for month in month_list]
+    return monthsLabels
 
 def adjust_time(timestr):
     if isinstance(timestr, float):  # In case there's a float
@@ -62,7 +89,7 @@ def adjust_time(timestr):
     else:
         return dt + datetime.timedelta(hours=1)  # Add 1 hour
 
-def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5): #5 for Twente
+def TimeUntilArrival012(dataset,start_date,end_date,regionId): 
     """ Function that obtains total driving time in total_time_until_arrival column, as well as unique ids. (this function contains no filtering, so no ids that do not contain open column are filtered out.)
     Note that a problem is that the atRequest==True statement is in some cases (approx. 10-15 percent) not found, so that we cannot derive
     (at least not from that) the time the vehicle arrived, leading to some None values at the total_driving_time column. Need to
@@ -71,7 +98,7 @@ def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5): #5 for Twente
                     [{"requestUpdate.urgency": {"$in": ["A1", "A2", "A0"]}},
                     {"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
                     {"requestUpdate.regionId": regionId},
-                    {"requestUpdate.isRelocation":{"$exists":False}},
+                    {"requestUpdate.isRelocation":{"$exists":False}}
                     ]}
     assignedCars012 = pd.DataFrame(list(dataset['updates'].find(Assigned_query))) 
     assignedCars012['timestamp'] = assignedCars012['time'].apply(adjust_time)
@@ -108,49 +135,60 @@ def TimeUntilArrival012(dataset,start_date,end_date,regionId = 5): #5 for Twente
     assignedCars012 = pd.merge(assignedCars012, times_df['total_time_until_arrival'], on='requestId', how='left')    
     return assignedCars012,unique_ids
 
-def FindAssignedCars012(dataset,start_date,end_date,regionId = 5):
+def FindAssignedCars012(area,dataset,start_date,end_date,regionId):
     """  Function that extracts which cars were assigned to an incident in region 5 from updates Collection. So a filtered version of TimeUntilArrival012.
     But on the other hand no atRequest==True filters. """
-    Assigned_query = {"$and": 
-                    [{"requestUpdate.urgency": {"$in": ["A1", "A2", "A0"]}},
-                    {"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
-                    {"requestUpdate.regionId": regionId},
-                    {"requestUpdate.isRelocation":{"$exists":False}},
-                    {"requestUpdate.dispatches.coupledVehicle": {"$exists":True}} #checks whether a vehicle is coupled to an incident. This factor should be present for checking when a car is assigned to an incident
-                    ]}
-    assignedCars012 = pd.DataFrame(list(dataset['updates'].find(Assigned_query))) 
-    assignedCars012['timestamp'] = assignedCars012['time'].apply(adjust_time)
-    assignedCars012['timestampLogger'] = assignedCars012['timeWrittenByLogger'].apply(adjust_time)
-    unique_keys_update = set()
-    for d in assignedCars012.loc[pd.isnull(assignedCars012.requestUpdate)==False]['requestUpdate']:
-        unique_keys_update.update(d.keys())
-    for key in unique_keys_update:
-        assignedCars012[key] = assignedCars012['requestUpdate'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan) 
+    start_date_string = start_date.strftime("%Y_%m_%d")
+    end_date_string = end_date.strftime("%Y_%m_%d")
+    if os.path.exists(f"regions/{area}/saved_assigned/{start_date_string}_{end_date_string}_assignedCars"):
+        with open(f"regions/{area}/saved_assigned/{start_date_string}_{end_date_string}_assignedCars", 'rb') as file:
+            print("Use pickle results for assigned cars.")
+            assignedCars012 = pickle.load(file)
+    else:
+        print('no pickle tables yet. making it now.')
+        Assigned_query = {"$and": 
+                        [{"requestUpdate.urgency": {"$in": ["A1", "A2", "A0"]}},
+                        {"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
+                        {"requestUpdate.regionId": regionId},
+                        {"requestUpdate.isRelocation":{"$exists":False}},
+                        {"requestUpdate.dispatches.coupledVehicle": {"$exists":True}} #checks whether a vehicle is coupled to an incident. This factor should be present for checking when a car is assigned to an incident
+                        ]}
+        assignedCars012 = pd.DataFrame(list(dataset['updates'].find(Assigned_query))) 
+        assignedCars012['timestamp'] = assignedCars012['time'].apply(adjust_time)
+        assignedCars012['timestampLogger'] = assignedCars012['timeWrittenByLogger'].apply(adjust_time)
+        unique_keys_update = set()
+        for d in assignedCars012.loc[pd.isnull(assignedCars012.requestUpdate)==False]['requestUpdate']:
+            unique_keys_update.update(d.keys())
+        for key in unique_keys_update:
+            assignedCars012[key] = assignedCars012['requestUpdate'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan) 
 
-    assignedCars012 = assignedCars012.reset_index().drop(['index','time','timeWrittenByLogger','_id','requestUpdate','regionId'],axis=1)
-    assignedCars012 = assignedCars012.explode('dispatches').reset_index().drop('index',axis=1)
-    unique_keys_disp = set()
-    for d in assignedCars012.loc[pd.isnull(assignedCars012.dispatches)==False]['dispatches']:
-        unique_keys_disp.update(d.keys())
-    for key in unique_keys_disp:
-        assignedCars012[key] = assignedCars012['dispatches'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan)
+        assignedCars012 = assignedCars012.reset_index().drop(['index','time','timeWrittenByLogger','_id','requestUpdate','regionId'],axis=1)
+        assignedCars012 = assignedCars012.explode('dispatches').reset_index().drop('index',axis=1)
+        unique_keys_disp = set()
+        for d in assignedCars012.loc[pd.isnull(assignedCars012.dispatches)==False]['dispatches']:
+            unique_keys_disp.update(d.keys())
+        for key in unique_keys_disp:
+            assignedCars012[key] = assignedCars012['dispatches'].apply(lambda row: row.get(key) if pd.isna(row)==False else np.nan)
 
-    columns_not_objects = ['timestamp','timestampLogger']
-    assignedCars012 = assignedCars012.apply(lambda col: col if col.name in columns_not_objects else col.astype(str))
-    assignedCars012 = assignedCars012.drop('dispatches',axis=1).dropna(axis=1, how='all').reset_index().drop('index',axis=1).sort_index(axis=1)
-    assignedCars012['time_gap'] =(assignedCars012.timestamp-assignedCars012.timestampLogger).dt.total_seconds()
-    assignedCars012 = assignedCars012[np.invert(assignedCars012.duplicated(subset=['requestId','coupledVehicle']))].reset_index().drop(['index'],axis=1)
+        columns_not_objects = ['timestamp','timestampLogger']
+        assignedCars012 = assignedCars012.apply(lambda col: col if col.name in columns_not_objects else col.astype(str))
+        assignedCars012 = assignedCars012.drop('dispatches',axis=1).dropna(axis=1, how='all').reset_index().drop('index',axis=1).sort_index(axis=1)
+        assignedCars012['time_gap'] =(assignedCars012.timestamp-assignedCars012.timestampLogger).dt.total_seconds()
+        assignedCars012 = assignedCars012[np.invert(assignedCars012.duplicated(subset=['requestId','coupledVehicle']))].reset_index().drop(['index'],axis=1)
+
+        with open(f"regions/{area}/saved_assigned/{start_date_string}_{end_date_string}_assignedCars", 'wb') as file:
+            pickle.dump(assignedCars012, file)
 
     return assignedCars012
 
-def FindDispatchAdvices(area,previous,dataset,start_date,end_date,unique_ids):
+def FindDispatchAdvices(area,dataset,start_date,end_date,unique_ids):
     start_date_string = start_date.strftime("%Y_%m_%d")
     end_date_string = end_date.strftime("%Y_%m_%d")
 
     """ With this function we find the non-na dispatch advices, as well as the unique ones and the #advs per incident.
     We also create a plot on the number of advices and unique advices. Should take about one hour per simulated month"""
 
-    if previous and os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices"):
+    if os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices"):
         with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_dispatchAdvices", 'rb') as file:
             print("Use pickle results.")
             dispatchAdvices = pickle.load(file)
@@ -198,11 +236,12 @@ def FindDispatchAdvices(area,previous,dataset,start_date,end_date,unique_ids):
             pickle.dump(dispatchAdvices, file)
 
     #unique advices.
-    if previous and os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices"):
+    if os.path.exists(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices"):
         with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices", 'rb') as file:
             print("Use pickle results for unique dispatch advices as well.")
             uniquedispatchAdvices = pickle.load(file)
     else:
+        print("previous pickle file does not exist, check for mistakes")
         uniquedispatchAdvices = dispatchAdvices.drop_duplicates(subset=['requestId', 'vehicleCode']).reset_index(drop=True)
         with open(f"regions/{area}/saved_results/{start_date_string}_{end_date_string}_uniquedispatchAdvices", 'wb') as file:
             pickle.dump(uniquedispatchAdvices, file)
@@ -213,13 +252,12 @@ def FindDispatchAdvices(area,previous,dataset,start_date,end_date,unique_ids):
     advicesPerIncident= list(dispatchAdvices.groupby(['requestId']).count().timestamp)
     advicesPerIncident.remove(max(advicesPerIncident)) #some reqID can get tens of thousands of advices
 
-    print(f"The average (mean) number of advices per incident is {int(np.mean(advicesPerIncident))} while the median number of advices is {int(np.median(advicesPerIncident))}.")
-    print(f"The average (mean) number of unique advices per incident is {round(np.mean(uniqueAdvsPerIncident),2)} while the median number of unique advices is {round(np.median(uniqueAdvsPerIncident))}.")
-    print(f"Between {start_date.strftime('%m/%d/%Y')} and {end_date.strftime('%m/%d/%Y')}, the number of "+
-          f"unique dispatch advices for urgencies A0/A1/A2 is {len(uniquedispatchAdvices)}. The total number of dispatch advices for A-incidents is {len(dispatchAdvices)}.")
-    print(f"The average (mean) number of unique daily advices is {round(len(uniquedispatchAdvices)/((end_date-start_date).days+1),2)}.")
+    # print(f"The average (mean) number of advices per incident is {int(np.mean(advicesPerIncident))} while the median number of advices is {int(np.median(advicesPerIncident))}.")
+    # print(f"The average (mean) number of unique advices per incident is {round(np.mean(uniqueAdvsPerIncident),2)} while the median number of unique advices is {round(np.median(uniqueAdvsPerIncident))}.")
+    # print(f"Between {start_date.strftime('%m/%d/%Y')} and {end_date.strftime('%m/%d/%Y')}, the number of "+
+    #       f"unique dispatch advices for urgencies A0/A1/A2 is {len(uniquedispatchAdvices)}. The total number of dispatch advices for A-incidents is {len(dispatchAdvices)}.")
+    # print(f"The average (mean) number of unique daily advices is {round(len(uniquedispatchAdvices)/((end_date-start_date).days+1),2)}.")
 
-    
     advicesPerIncident_dict = {'Total': advicesPerIncident, 'Unique': uniqueAdvsPerIncident}
     #make a plot about this.
     dict_perinc = advicesPerIncident_dict
@@ -272,17 +310,6 @@ def CompareDispatch(assignedCars, dispAdvices):
 
 def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
     ''' Make ranking with the dispatch statistics dataframe group_by_period should be either day, week, or month'''
-    
-    DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
-    # Filter out rows with None in advice_rank and calculate percentages
-    df_filtered = DispStats_df.copy()
-    df_filtered = df_filtered.dropna(subset=['advice_rank'])
-    df_filtered['advice_rank'] = df_filtered['advice_rank'].astype(int)
-
-    # Group advice ranks of 5 or higher into one category
-    df_filtered['advice_rank_grouped'] = df_filtered['advice_rank'].apply(lambda x: x if x <= 4 else 5)
-    advice_rank_counts = df_filtered.groupby([group_by_period, 'advice_rank_grouped']).size().unstack(fill_value=0)
-    advice_rank_percentages = advice_rank_counts.div(advice_rank_counts.sum(axis=1), axis=0) * 100
 
     # Plot the percentages of each advice_rank
     DispStats_df['time_difference'] = (DispStats_df['actual_end_time'] - DispStats_df['optimal_end_time']).dt.total_seconds()
@@ -308,26 +335,13 @@ def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
     incidents_per_period = DispStats_df.groupby(group_by_period)['requestId'].nunique()
     dispatches_per_period = DispStats_df.groupby(group_by_period).size()
     comparison_df = pd.DataFrame({
-            '# Incidents': incidents_per_period,
-            '# Dispatches': dispatches_per_period }).reset_index()
+            '# Incs': incidents_per_period,
+            '# Disps': dispatches_per_period }).reset_index()
     incVdisp         = [ (str(week), column) for week in comparison_df.week for column in comparison_df.columns[1:]]
     incVdisp_counts  = comparison_df[comparison_df.columns[1:]].values.flatten().tolist()
     incVdisp_source  = ColumnDataSource(data=dict(x=incVdisp, counts=incVdisp_counts))
 
-    palette = Category10_3  # You can also choose another palette with more colors if needed
     colors = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
-
-    p2 = figure(x_range=FactorRange(*incVdisp), height=500, 
-                title=f'Number of Incidents vs Number of Dispatches per Week',
-                toolbar_location=None, tools="")
-
-    p2.vbar(x='x', top='counts', width=0.9, source=incVdisp_source, line_color="white", 
-            fill_color=factor_cmap('x', palette=palette, factors=['# Incidents', '# Dispatches'], start=1, end=2))
-
-    # Customize the plot appearance
-    p2.y_range.start = 0
-    p2.x_range.range_padding = 0.1
-    p2.xgrid.grid_line_color = None
 
     p1 = figure(x_range=df_weeks_str, plot_height=600, 
             title   = f'Incident Advice Distribution per {group_by_period.capitalize()}', 
@@ -348,22 +362,42 @@ def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
     p1.legend.location = 'left'
     p1.legend.orientation = 'horizontal'
 
+    p2 = figure(x_range=FactorRange(*incVdisp), height=600, 
+                title=f'Number of Incidents vs Number of Dispatches per Week',
+                toolbar_location=None, tools="")
+    factors = ['# Incs', '# Disps']
+    p2.vbar(x='x', top='counts', width=0.9, source=incVdisp_source, line_color="white", 
+            fill_color=factor_cmap('x', palette=['#1f77b4','#ff7f0e'], factors=factors, start=1, end=2))
+
+    # Customize the plot appearance
+    p2.xaxis.major_label_orientation = "vertical"
+    p2.y_range.start = 0
+    p2.x_range.range_padding = 0.1
+    p2.xgrid.grid_line_color = None
+
     return row(p1,p2)
 
-def mongoDBimportTwente(area,startMonth,startDay,endMonth,endDay,boolean):
+def mongoDBimportTwente(area,startMonth,startDay,endMonth,endDay):
+    #create folders where results are saved
+    os.makedirs("regions", exist_ok=True)
+    os.makedirs(f"regions/{area}", exist_ok=True)
+    os.makedirs(f"regions/{area}/saved_results", exist_ok=True)
+    os.makedirs(f"regions/{area}/saved_assigned", exist_ok=True)
+
     loc_to_sta_rounded = {tuple(np.round(key,2)) : value for key, value in loc_to_sta_oost.items()}
-    previous = [True,False][boolean]
     client = MongoClient("mongodb+srv://seconds:test%5EMe%5E%5E@cluster0.z9k9jkv.mongodb.net/")
-    dataset = client.aon_prd_V2
+    dataset = client[connection_string_suffixs.get(area)]
+    regioId = regionIds.get(area)
     start_date = datetime.datetime(2024, startMonth, startDay, 0 , 0, 0)
     #since 2 hours are added after 31 of March, in order to get data until end of march, do until 22:00
-    end_date = datetime.datetime(2024, endMonth, endDay, 23, 59, 59)
+    end_date = datetime.datetime(2024, endMonth, endDay, 21, 59, 59)
+    print(area,startMonth,startDay,endMonth,endDay)
 
-    TimeUntilArrival012_df, uniqueIDs                             = TimeUntilArrival012(dataset,start_date,end_date)
+    TimeUntilArrival012_df, uniqueIDs                             = TimeUntilArrival012(dataset,start_date,end_date,regioId)
     print('TimeUntilArrival done')
-    AssignedCars_df                                               = FindAssignedCars012(dataset,start_date,end_date)
+    AssignedCars_df                                               = FindAssignedCars012(area,dataset,start_date,end_date,regionId=regioId)
     print('Assigned Cars done')
-    DispAdvices_df, UniqueDispAdvices_df, AdvicesPerIncident_dict = FindDispatchAdvices(area,previous,dataset,start_date,end_date,uniqueIDs)
+    DispAdvices_df, UniqueDispAdvices_df, AdvicesPerIncident_dict = FindDispatchAdvices(area,dataset,start_date,end_date,uniqueIDs)
     print('DispatchAdvices done')
     DispStats_df                                                  = CompareDispatch(AssignedCars_df,DispAdvices_df)
     print('DispatchStats done')
