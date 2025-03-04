@@ -1,0 +1,13 @@
+pandas
+numpy
+geopandas
+shapely
+matplotlib
+seaborn
+plotly
+contextily
+bokeh
+pymongo
+tqdm
+panel
+pyogrio
