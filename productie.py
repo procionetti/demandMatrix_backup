@@ -24,11 +24,11 @@ import json
 
 from bokeh.io import output_notebook, show, output_file
 from bokeh.plotting import figure
-from bokeh.models import GeoJSONDataSource, LinearColorMapper, ColorBar, RadioButtonGroup,Slider
+from bokeh.models import GeoJSONDataSource, LinearColorMapper, ColorBar, RadioButtonGroup,Slider, Widget
 from bokeh.palettes import brewer
 
 from bokeh.io.doc import curdoc
-from bokeh.layouts import widgetbox, row, column
+from bokeh.layouts import row, column
 
 def extractDataTwente():
     twente_21=pd.read_excel(r'C:/Users/MC/OneDrive - Stokhos BV/Stokhos/regiosdata/twente/Twente_ritten2021.xlsx')

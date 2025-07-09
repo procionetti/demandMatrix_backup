@@ -11,3 +11,10 @@ pymongo
 tqdm
 panel
 pyogrio
+pyogrio
+scipy
+pprint
+zoneinfo
+notebook
+mpl_toolkits
+ipywidgets

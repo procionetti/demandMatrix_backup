@@ -1,6 +1,6 @@
-from bokeh.models import ColumnDataSource, FactorRange
+from bokeh.models import ColumnDataSource, FactorRange, Widget
 from bokeh.plotting import figure, show, output_notebook
-from bokeh.layouts import widgetbox, row, column, gridplot, layout
+from bokeh.layouts import  row, column, gridplot, layout
 from bokeh.transform import factor_cmap
 from bokeh.palettes import Category10, Category10_3
 import pymongo
@@ -14,6 +14,7 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import math
+from   zoneinfo import ZoneInfo
 import panel
 import sys
 import time
@@ -66,10 +67,21 @@ regionIds = {"ijs": 4,
              "bn": 21,
              "bzo": 22,
              "fgm": 25}
+def get_year_for_month(month):
+    today = datetime.datetime.today()
+    # If the requested month is after the current month, use previous year
+    if month > today.month or (month == today.month and today.day < 28):
+        return today.year - 1
+    return today.year
 
 #round up, needed so that we can match coordinates of performed relocations to these stations. If we rounc up to too many digits, no matches will be found.
 def monthsSelector(area):
     directory = f'regions/{area}/saved_results/'
+    #create folders where results are saved
+    os.makedirs("regions", exist_ok=True)
+    os.makedirs(f"regions/{area}", exist_ok=True)
+    os.makedirs(f"regions/{area}/saved_results", exist_ok=True)
+    os.makedirs(f"regions/{area}/saved_assigned", exist_ok=True)
     # Regex pattern to match the filenames and extract the month
     pattern = re.compile(r"\d{4}_(\d{2})_\d{2}_\d{4}_\d{2}_\d{2}_dispatchAdvices")
     # Extract the months
@@ -82,18 +94,19 @@ def monthsSelector(area):
 def adjust_time(timestr):
     if isinstance(timestr, float):  # In case there's a float
         return pd.NaT
+    # Parse the string to datetime (assume UTC)
     dt = datetime.datetime.strptime("".join(timestr[:10] + timestr[11:19]), '%Y-%m-%d%H:%M:%S')
-    # Check if the datetime is on or after March 31, 2024, 1:00 AM
-    if dt >= datetime.datetime(2024, 3, 31, 1, 0, 0):
-        return dt + datetime.timedelta(hours=2)  # Add 2 hours
-    else:
-        return dt + datetime.timedelta(hours=1)  # Add 1 hour
+    dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    # Convert to Europe/Amsterdam timezone (CET/CEST)
+    dt_cet = dt.astimezone(ZoneInfo("Europe/Amsterdam"))
+    return dt_cet
 
 def TimeUntilArrival012(dataset,start_date,end_date,regionId): 
     """ Function that obtains total driving time in total_time_until_arrival column, as well as unique ids. (this function contains no filtering, so no ids that do not contain open column are filtered out.)
     Note that a problem is that the atRequest==True statement is in some cases (approx. 10-15 percent) not found, so that we cannot derive
     (at least not from that) the time the vehicle arrived, leading to some None values at the total_driving_time column. Need to
     obtain the finishing time from some other column. Look into this."""
+    print(f"The name of the dataset is {dataset.name} and the regionId is {regionId}.")
     Assigned_query = {"$and": 
                     [{"requestUpdate.urgency": {"$in": ["A1", "A2", "A0"]}},
                     {"timeWrittenByLogger": {"$gte": start_date.isoformat() + 'Z',"$lte": end_date.isoformat() + 'Z'}},
@@ -268,7 +281,7 @@ def CompareDispatch(assignedCars, dispAdvices):
     this function creates statistics that show how many (and whether it was 1st / 2nd / ... option) advices were followed'''
     # Create a new dataframe based on assignedCars with selected columns
     df_new = assignedCars[['timestamp', 'requestId', 'coupledVehicle', 'urgency']].copy()
-    print(type(assignedCars.requestId[0]),type(assignedCars.coupledVehicle[0]),type(dispAdvices.requestId[0]),type(dispAdvices.vehicleCode[0]))
+    # print(type(assignedCars.requestId[0]),type(assignedCars.coupledVehicle[0]),type(dispAdvices.requestId[0]),type(dispAdvices.vehicleCode[0]))
     # Merge with dispAdvices to find matches, using the indicator=True to get the _merge column
     merged = pd.merge(
         df_new,
@@ -343,7 +356,7 @@ def DispatchRanksNumsPlots(DispStats_df, group_by_period='week'):
 
     colors = Category10[len(advice_ranks)]  # Use a color palette with enough colors for each rank
 
-    p1 = figure(x_range=df_weeks_str, plot_height=600, 
+    p1 = figure(x_range=df_weeks_str, height=600, 
             title   = f'Incident Advice Distribution per {group_by_period.capitalize()}', 
             toolbar_location=None, tools="", y_range=(0, 100))
 
@@ -388,9 +401,9 @@ def mongoDBimportTwente(area,startMonth,startDay,endMonth,endDay):
     client = MongoClient("mongodb+srv://seconds:test%5EMe%5E%5E@cluster0.z9k9jkv.mongodb.net/")
     dataset = client[connection_string_suffixs.get(area)]
     regioId = regionIds.get(area)
-    start_date = datetime.datetime(2024, startMonth, startDay, 0 , 0, 0)
+    start_date = datetime.datetime(get_year_for_month(startMonth), startMonth, startDay, 0 , 0, 0)
     #since 2 hours are added after 31 of March, in order to get data until end of march, do until 22:00
-    end_date = datetime.datetime(2024, endMonth, endDay, 21, 59, 59)
+    end_date = datetime.datetime(get_year_for_month(startMonth), endMonth, endDay, 21, 59, 59)
     print(area,startMonth,startDay,endMonth,endDay)
 
     TimeUntilArrival012_df, uniqueIDs                             = TimeUntilArrival012(dataset,start_date,end_date,regioId)
